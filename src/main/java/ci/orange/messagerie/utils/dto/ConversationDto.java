@@ -23,7 +23,7 @@ import ci.orange.messagerie.utils.dto.base._ConversationDto;
 /**
  * DTO for table "conversation"
  *
- * @author Sekongo
+ * @author Geo
  */
 @Data
 @ToString
@@ -32,6 +32,10 @@ import ci.orange.messagerie.utils.dto.base._ConversationDto;
 public class ConversationDto extends _ConversationDto{
 
     private String    statusLibelle               ;
+    private String    typeConversation;
+    private Integer   interlocuteurId;
+    private String    messageContent;
+    private String    messageImgUrl;
     
 	//----------------------------------------------------------------------
     // clone METHOD

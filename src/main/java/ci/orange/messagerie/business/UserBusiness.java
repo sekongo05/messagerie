@@ -84,8 +84,8 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
 			fieldsToVerify.put("nom", dto.getNom());
 			fieldsToVerify.put("prenoms", dto.getPrenoms());
-			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
-			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
+//			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
+//			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
 			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
 				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
 				response.setHasError(true);
@@ -268,9 +268,6 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 				return response;
 			}
 
-			// -----------------------------------------------------------------------
-			// ----------- CHECK IF DATA IS USED
-			// -----------------------------------------------------------------------
 
 			// participantConversation
 			List<ParticipantConversation> listOfParticipantConversation = participantConversationRepository.findByUserId(existingEntity.getId(), false);

@@ -33,7 +33,6 @@ import ci.orange.messagerie.utils.contract.*;
 public class _MessageDto implements Cloneable {
 
     protected Integer    id                   ; // Primary Key
-
     protected String     content              ;
     protected String     imgUrl               ;
 	protected String     createdAt            ;

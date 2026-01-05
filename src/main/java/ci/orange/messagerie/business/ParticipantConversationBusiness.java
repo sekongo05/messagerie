@@ -81,22 +81,77 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 		Response<ParticipantConversationDto> response = new Response<ParticipantConversationDto>();
 		List<ParticipantConversation>        items    = new ArrayList<ParticipantConversation>();
 			
+		// ========================================================================
+		// VÉRIFICATION GLOBALE : Vérifier les conversations privées avant traitement
+		// ========================================================================
+		// Regrouper les participants par conversation pour vérifier les limites
+		Map<Integer, List<Integer>> participantsByConversation = new HashMap<>();
+		Map<Integer, Conversation> conversationsCache = new HashMap<>();
+		
+		for (ParticipantConversationDto dto : request.getDatas()) {
+			if (dto.getConversationId() != null && dto.getUserId() != null) {
+				Integer convId = dto.getConversationId();
+				Integer userId = dto.getUserId();
+				
+				// Récupérer la conversation si pas encore en cache
+				if (!conversationsCache.containsKey(convId)) {
+					Conversation conv = conversationRepository.findOne(convId, false);
+					if (conv != null) {
+						conversationsCache.put(convId, conv);
+					}
+				}
+				
+				// Grouper les participants par conversation
+				if (!participantsByConversation.containsKey(convId)) {
+					participantsByConversation.put(convId, new ArrayList<>());
+				}
+				participantsByConversation.get(convId).add(userId);
+			}
+		}
+		
+		// Vérifier les limites pour chaque conversation privée
+		for (Map.Entry<Integer, List<Integer>> entry : participantsByConversation.entrySet()) {
+			Integer convId = entry.getKey();
+			Conversation conv = conversationsCache.get(convId);
+			
+			if (conv != null && conv.getTypeConversation() != null) {
+				String typeCode = conv.getTypeConversation().getCode();
+				boolean isPrivate = typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
+				
+				if (isPrivate) {
+					// Vérifier les participants existants
+					List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(convId, false);
+					int currentCount = (existingParticipants != null) ? existingParticipants.size() : 0;
+					
+					// Vérifier les doublons dans la requête
+					Set<Integer> uniqueUserIds = new HashSet<>(entry.getValue());
+					int newUniqueCount = uniqueUserIds.size();
+					
+					if (currentCount + newUniqueCount > 2) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'ajouter " + newUniqueCount + " participant(s) : une conversation privée ne peut avoir que 2 participants maximum (le créateur et l'interlocuteur). Cette conversation a déjà " + currentCount + " participant(s).", locale));
+						response.setHasError(true);
+						return response;
+					}
+				}
+			}
+		}
+		
 		for (ParticipantConversationDto dto : request.getDatas()) {
 			// Definir les parametres obligatoires
 			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
 			fieldsToVerify.put("conversationId", dto.getConversationId());
 			fieldsToVerify.put("userId", dto.getUserId());
-			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
-			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
-			fieldsToVerify.put("recreatedAt", dto.getRecreatedAt());
-			fieldsToVerify.put("recreatedBy", dto.getRecreatedBy());
-			fieldsToVerify.put("leftAt", dto.getLeftAt());
-			fieldsToVerify.put("leftBy", dto.getLeftBy());
-			fieldsToVerify.put("definitivelyLeftAt", dto.getDefinitivelyLeftAt());
-			fieldsToVerify.put("definitivelyLeftBy", dto.getDefinitivelyLeftBy());
-			fieldsToVerify.put("hasLeft", dto.getHasLeft());
-			fieldsToVerify.put("hasDefinitivelyLeft", dto.getHasDefinitivelyLeft());
-			fieldsToVerify.put("hasCleaned", dto.getHasCleaned());
+//			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
+//			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
+//			fieldsToVerify.put("recreatedAt", dto.getRecreatedAt());
+//			fieldsToVerify.put("recreatedBy", dto.getRecreatedBy());
+//			fieldsToVerify.put("leftAt", dto.getLeftAt());
+//			fieldsToVerify.put("leftBy", dto.getLeftBy());
+//			fieldsToVerify.put("definitivelyLeftAt", dto.getDefinitivelyLeftAt());
+//			fieldsToVerify.put("definitivelyLeftBy", dto.getDefinitivelyLeftBy());
+//			fieldsToVerify.put("hasLeft", dto.getHasLeft());
+//			fieldsToVerify.put("hasDefinitivelyLeft", dto.getHasDefinitivelyLeft());
+//			fieldsToVerify.put("hasCleaned", dto.getHasCleaned());
 			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
 				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
 				response.setHasError(true);
@@ -134,7 +189,60 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 					return response;
 				}
 			}
-				ParticipantConversation entityToSave = null;
+			
+
+			//  Seul le créateur peut ajouter des membres à un groupe
+			// Une conversation privée ne peut avoir que 2 participants maximum
+			if (existingConversation != null && existingConversation.getTypeConversation() != null) {
+				String typeCode = existingConversation.getTypeConversation().getCode();
+				boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
+				boolean isPrivate = typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
+				
+				if (isGroup) {
+					// Pour un groupe, seul le créateur peut ajouter des membres
+					Integer createurId = existingConversation.getCreatedBy();
+					Integer currentUserId = request.getUser();
+					
+					if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut ajouter des membres. Vous n'êtes pas autorisé à ajouter des membres à ce groupe.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + existingConversation.getId() + ") est autorisé à ajouter des membres.");
+				} else if (isPrivate) {
+					// Pour une conversation privée, vérifier qu'elle n'a pas déjà 2 participants
+					List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
+					
+					if (existingParticipants != null && existingParticipants.size() >= 2) {
+						// Vérifier si l'utilisateur à ajouter est déjà un participant
+						boolean userAlreadyParticipant = false;
+						if (dto.getUserId() != null) {
+							for (ParticipantConversation participant : existingParticipants) {
+								if (participant.getUser() != null && participant.getUser().getId() != null 
+										&& participant.getUser().getId().equals(dto.getUserId())) {
+									userAlreadyParticipant = true;
+									break;
+								}
+							}
+						}
+						
+						if (!userAlreadyParticipant) {
+							response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'ajouter un participant : une conversation privée ne peut avoir que 2 participants maximum (le créateur et l'interlocuteur). Cette conversation a déjà " + existingParticipants.size() + " participant(s).", locale));
+							response.setHasError(true);
+							return response;
+						} else {
+							response.setStatus(functionalError.DATA_EXIST("Cet utilisateur est déjà participant de cette conversation privée.", locale));
+							response.setHasError(true);
+							return response;
+						}
+					}
+					
+					log.info("Vérification : Conversation privée id=" + existingConversation.getId() + " a actuellement " + 
+							(existingParticipants != null ? existingParticipants.size() : 0) + " participant(s). Ajout autorisé.");
+				}
+			}
+			
+			ParticipantConversation entityToSave = null;
 			entityToSave = ParticipantConversationTransformer.INSTANCE.toEntity(dto, existingUser, existingConversation);
 			entityToSave.setCreatedAt(Utilities.getCurrentDate());
 			entityToSave.setCreatedBy(request.getUser());
@@ -227,7 +335,46 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 					response.setHasError(true);
 					return response;
 				}
+				
+				//  Seul le créateur peut modifier des participants dans un groupe
+
+				if (existingConversation.getTypeConversation() != null) {
+					String typeCode = existingConversation.getTypeConversation().getCode();
+					boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
+					
+					if (isGroup) {
+						Integer createurId = existingConversation.getCreatedBy();
+						Integer currentUserId = request.getUser();
+						
+						if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
+							response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut modifier les membres. Vous n'êtes pas autorisé à modifier des participants de ce groupe.", locale));
+							response.setHasError(true);
+							return response;
+						}
+						log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + existingConversation.getId() + ") est autorisé à modifier des participants.");
+					}
+				}
+				
 				entityToSave.setConversation(existingConversation);
+			} else {
+				// Même si le conversationId n'est pas dans le DTO, vérifier la conversation existante
+				Conversation currentConversation = entityToSave.getConversation();
+				if (currentConversation != null && currentConversation.getTypeConversation() != null) {
+					String typeCode = currentConversation.getTypeConversation().getCode();
+					boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
+					
+					if (isGroup) {
+						// Pour un groupe, seul le créateur peut modifier les participants
+						Integer createurId = currentConversation.getCreatedBy();
+						Integer currentUserId = request.getUser();
+						
+						if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
+							response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut modifier les membres. Vous n'êtes pas autorisé à modifier des participants de ce groupe.", locale));
+							response.setHasError(true);
+							return response;
+						}
+					}
+				}
 			}
 			if (Utilities.notBlank(dto.getDeletedAt())) {
 				entityToSave.setDeletedAt(dateFormat.parse(dto.getDeletedAt()));
@@ -339,10 +486,30 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 				response.setHasError(true);
 				return response;
 			}
+			
 
-			// -----------------------------------------------------------------------
-			// ----------- CHECK IF DATA IS USED
-			// -----------------------------------------------------------------------
+			// Seul le créateur peut supprimer des membres d'un groupe
+
+			Conversation conversation = existingEntity.getConversation();
+			if (conversation != null && conversation.getTypeConversation() != null) {
+				String typeCode = conversation.getTypeConversation().getCode();
+				boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
+				
+				if (isGroup) {
+					// Pour un groupe, seul le créateur peut supprimer des membres
+					Integer createurId = conversation.getCreatedBy();
+					Integer currentUserId = request.getUser();
+					
+					if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut supprimer des membres. Vous n'êtes pas autorisé à supprimer des membres de ce groupe.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + conversation.getId() + ") est autorisé à supprimer des membres.");
+				}
+				// Pour les conversations privées, les participants peuvent se retirer eux-mêmes
+			}
+
 
 
 

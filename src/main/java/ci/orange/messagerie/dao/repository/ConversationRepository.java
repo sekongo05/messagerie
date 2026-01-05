@@ -36,5 +36,12 @@ import ci.orange.messagerie.dao.repository.base._ConversationRepository;
  */
 @Repository
 public interface ConversationRepository extends JpaRepository<Conversation, Integer>, _ConversationRepository {
-
+     // permet de resortir le type d'une conversation'
+    @Query("""
+    SELECT e.typeConversation
+    FROM Conversation e
+    WHERE e.id = :conversationId
+      AND e.isDeleted = false
+""")
+    TypeConversation findConversationType(@Param("conversationId") Integer conversationId);
 }

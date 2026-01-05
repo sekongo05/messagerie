@@ -294,9 +294,6 @@ public class TypeMessageBusiness implements IBasicBusiness<Request<TypeMessageDt
 				return response;
 			}
 
-			// -----------------------------------------------------------------------
-			// ----------- CHECK IF DATA IS USED
-			// -----------------------------------------------------------------------
 
 			// message
 			List<Message> listOfMessage = messageRepository.findByTypeMessage(existingEntity.getId(), false);

@@ -30,6 +30,9 @@ import ci.orange.messagerie.utils.dto.transformer.*;
 import ci.orange.messagerie.dao.entity.Message;
 import ci.orange.messagerie.dao.entity.Conversation;
 import ci.orange.messagerie.dao.entity.TypeMessage;
+import ci.orange.messagerie.dao.entity.ParticipantConversation;
+import ci.orange.messagerie.dao.entity.HistoriqueSuppressionMessage;
+import ci.orange.messagerie.dao.entity.User;
 import ci.orange.messagerie.dao.entity.*;
 import ci.orange.messagerie.dao.repository.*;
 
@@ -52,6 +55,10 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 	private ConversationRepository conversationRepository;
 	@Autowired
 	private TypeMessageRepository typeMessage2Repository;
+	@Autowired
+	private ParticipantConversationRepository participantConversationRepository;
+	@Autowired
+	private UserRepository userRepository;
 	@Autowired
 	private FunctionalError functionalError;
 	@Autowired
@@ -88,9 +95,9 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
 			fieldsToVerify.put("content", dto.getContent());
 			fieldsToVerify.put("imgUrl", dto.getImgUrl());
-			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
-			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
-			fieldsToVerify.put("typeMessage", dto.getTypeMessage());
+//			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
+//			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
+//			fieldsToVerify.put("typeMessage", dto.getTypeMessage());
 			fieldsToVerify.put("conversationId", dto.getConversationId());
 			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
 				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
@@ -119,6 +126,60 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 					return response;
 				}
 			}
+			
+			// Pour une conversation privée, seuls le créateur et l'interlocuteur peuvent envoyer des messages
+
+			if (existingConversation != null && existingConversation.getTypeConversation() != null) {
+				String typeCode = existingConversation.getTypeConversation().getCode();
+				boolean isPrivate = typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
+				
+				if (isPrivate) {
+					// Pour une conversation privée, vérifier que l'utilisateur est soit le créateur, soit l'interlocuteur
+					Integer currentUserId = request.getUser();
+					Integer createurId = existingConversation.getCreatedBy();
+					
+					if (currentUserId == null) {
+						response.setStatus(functionalError.FIELD_EMPTY("user (utilisateur connecté)", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					// Récupérer tous les participants de la conversation privée
+					// Dans une conversation privée, il ne doit y avoir que 2 participants
+					List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
+					
+					if (participants == null || participants.isEmpty()) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Aucun participant trouvé dans cette conversation privée", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					// Vérifier qu'il y a exactement 2 participants dans une conversation privée
+					if (participants.size() != 2) {
+						log.warning("Conversation privée id=" + existingConversation.getId() + " a " + participants.size() + " participants au lieu de 2. Cela pourrait indiquer une erreur de données.");
+					}
+					
+					// Vérifier que l'utilisateur actuel est un des deux participants
+					boolean isAuthorized = false;
+					
+					for (ParticipantConversation participant : participants) {
+						if (participant.getUser() != null && participant.getUser().getId() != null 
+								&& participant.getUser().getId().equals(currentUserId)) {
+							isAuthorized = true;
+							break;
+						}
+					}
+					
+					if (!isAuthorized) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Vous n'êtes pas autorisé à envoyer des messages dans cette conversation privée. Seuls les deux participants (créateur et interlocuteur) peuvent converser.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " est autorisé à envoyer un message dans la conversation privée id=" + existingConversation.getId());
+				}
+			}
+
 			// Verify if typeMessage2 exist
 			TypeMessage existingTypeMessage2 = null;
 			if (dto.getTypeMessage() != null && dto.getTypeMessage() > 0){
@@ -129,6 +190,8 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 					return response;
 				}
 			}
+
+
 				Message entityToSave = null;
 			entityToSave = MessageTransformer.INSTANCE.toEntity(dto, existingConversation, existingTypeMessage2);
 			entityToSave.setCreatedAt(Utilities.getCurrentDate());
@@ -283,16 +346,26 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 	/**
 	 * delete Message by using MessageDto as object.
 	 * 
+
+	 * 
 	 * @param request
 	 * @return response
 	 * 
 	 */
 	@Override
 	public Response<MessageDto> delete(Request<MessageDto> request, Locale locale)  {
-		log.info("----begin delete Message-----");
+		log.info("----begin delete Message (suppression unilatérale)-----");
 
 		Response<MessageDto> response = new Response<MessageDto>();
-		List<Message>        items    = new ArrayList<Message>();
+		Integer currentUserId = request.getUser();
+		
+		if (currentUserId == null || currentUserId <= 0) {
+			response.setStatus(functionalError.FIELD_EMPTY("user (utilisateur connecté)", locale));
+			response.setHasError(true);
+			return response;
+		}
+		
+		List<HistoriqueSuppressionMessage> historiquesToSave = new ArrayList<>();
 			
 		for (MessageDto dto : request.getDatas()) {
 			// Definir les parametres obligatoires
@@ -304,43 +377,80 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 				return response;
 			}
 
-			// Verifier si la message existe
-			Message existingEntity = null;
-
-			existingEntity = messageRepository.findOne(dto.getId(), false);
-			if (existingEntity == null) {
+			// Verifier si le message existe
+			Message existingMessage = messageRepository.findOne(dto.getId(), false);
+			if (existingMessage == null) {
 				response.setStatus(functionalError.DATA_NOT_EXIST("message -> " + dto.getId(), locale));
 				response.setHasError(true);
 				return response;
 			}
 
-			// -----------------------------------------------------------------------
-			// ----------- CHECK IF DATA IS USED
-			// -----------------------------------------------------------------------
 
-			// historiqueSuppressionMessage
-			List<HistoriqueSuppressionMessage> listOfHistoriqueSuppressionMessage = historiqueSuppressionMessageRepository.findByMessageId(existingEntity.getId(), false);
-			if (listOfHistoriqueSuppressionMessage != null && !listOfHistoriqueSuppressionMessage.isEmpty()){
-				response.setStatus(functionalError.DATA_NOT_DELETABLE("(" + listOfHistoriqueSuppressionMessage.size() + ")", locale));
+			// VÉRIFICATION DES PERMISSIONS : L'utilisateur doit être participant de la conversation
+			if (existingMessage.getConversation() == null) {
+				response.setStatus(functionalError.DATA_NOT_EXIST("Le message n'appartient à aucune conversation", locale));
 				response.setHasError(true);
 				return response;
 			}
+			
+			Conversation conversation = existingMessage.getConversation();
+			List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(conversation.getId(), false);
+			
+			// Vérifier que l'utilisateur actuel est participant de la conversation
+			boolean isParticipant = false;
+			User currentUser = null;
+			
+			if (participants != null && !participants.isEmpty()) {
+				for (ParticipantConversation participant : participants) {
+					if (participant.getUser() != null && participant.getUser().getId() != null 
+							&& participant.getUser().getId().equals(currentUserId)) {
+						isParticipant = true;
+						currentUser = participant.getUser();
+						break;
+					}
+				}
+			}
+			
+			if (!isParticipant) {
+				response.setStatus(functionalError.DATA_NOT_EXIST("Vous n'êtes pas participant de cette conversation. Vous ne pouvez pas supprimer ce message.", locale));
+				response.setHasError(true);
+				return response;
+			}
+			
 
+			// vérification que L'utilisateur n'a pas déjà supprimé ce message
+			HistoriqueSuppressionMessage existingHistorique = historiqueSuppressionMessageRepository.findByMessageIdAndUserId(
+				existingMessage.getId(), currentUserId, false);
+			
+			if (existingHistorique != null) {
+				log.info("L'utilisateur " + currentUserId + " a déjà supprimé le message id=" + existingMessage.getId() + ". Ignorer la suppression.");
+				continue;
+			}
 
-			existingEntity.setDeletedAt(Utilities.getCurrentDate());
-			existingEntity.setDeletedBy(request.getUser());
-			existingEntity.setIsDeleted(true);
-			items.add(existingEntity);
+			// Lorsqu'un utilisateur supprime un message, on enregistre cela dans l'historique
+			HistoriqueSuppressionMessage historique = new HistoriqueSuppressionMessage();
+			historique.setMessage(existingMessage);
+			historique.setUser(currentUser);
+			historique.setCreatedAt(Utilities.getCurrentDate());
+			historique.setCreatedBy(currentUserId);
+			historique.setIsDeleted(false);
+			
+			historiquesToSave.add(historique);
+			
+			log.info("Historique de suppression créé pour message id=" + existingMessage.getId() + " et utilisateur id=" + currentUserId);
 		}
 
-		if (!items.isEmpty()) {
-			// supprimer les donnees en base
-			messageRepository.saveAll((Iterable<Message>) items);
-
+		// Sauvegarder tous les historiques de suppression
+		if (!historiquesToSave.isEmpty()) {
+			historiqueSuppressionMessageRepository.saveAll(historiquesToSave);
 			response.setHasError(false);
+			log.info("Nombre d'historiques de suppression créés: " + historiquesToSave.size());
+		} else {
+			response.setHasError(false);
+			log.info("Aucun historique de suppression à créer (tous les messages étaient déjà supprimés).");
 		}
 
-		log.info("----end delete Message-----");
+		log.info("----end delete Message (suppression unilatérale)-----");
 		return response;
 	}
 

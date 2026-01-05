@@ -82,29 +82,18 @@ public class HistoriqueSuppressionMessageBusiness implements IBasicBusiness<Requ
 		List<HistoriqueSuppressionMessage>        items    = new ArrayList<HistoriqueSuppressionMessage>();
 			
 		for (HistoriqueSuppressionMessageDto dto : request.getDatas()) {
-			// Definir les parametres obligatoires
+
 			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
 			fieldsToVerify.put("messageId", dto.getMessageId());
 			fieldsToVerify.put("userId", dto.getUserId());
-			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
-			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
+//			fieldsToVerify.put("deletedAt", dto.getDeletedAt()); //
+//			fieldsToVerify.put("deletedBy", dto.getDeletedBy()); //
 			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
 				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
 				response.setHasError(true);
 				return response;
 			}
 
-			// Verify if historiqueSuppressionMessage to insert do not exist
-			HistoriqueSuppressionMessage existingEntity = null;
-
-/*
-			if (existingEntity != null) {
-				response.setStatus(functionalError.DATA_EXIST("historiqueSuppressionMessage id -> " + dto.getId(), locale));
-				response.setHasError(true);
-				return response;
-			}
-
-*/
 			// Verify if user exist
 			User existingUser = null;
 			if (dto.getUserId() != null && dto.getUserId() > 0){
@@ -125,12 +114,23 @@ public class HistoriqueSuppressionMessageBusiness implements IBasicBusiness<Requ
 					return response;
 				}
 			}
-				HistoriqueSuppressionMessage entityToSave = null;
+			
+			// VÉRIFICATION D'UNICITÉ : Un utilisateur ne peut supprimer le même message qu'une fois
+			HistoriqueSuppressionMessage existingHistorique = historiqueSuppressionMessageRepository.findByMessageIdAndUserId(
+				dto.getMessageId(), dto.getUserId(), false);
+			
+			if (existingHistorique != null) {
+				response.setStatus(functionalError.DATA_EXIST("Cet utilisateur a déjà supprimé ce message. Un historique existe déjà pour messageId=" + dto.getMessageId() + " et userId=" + dto.getUserId(), locale));
+				response.setHasError(true);
+				return response;
+			}
+			// CRÉATION DE L'HISTORIQUE DE SUPPRESSION
+			HistoriqueSuppressionMessage entityToSave = null;
 			entityToSave = HistoriqueSuppressionMessageTransformer.INSTANCE.toEntity(dto, existingUser, existingMessage);
 			entityToSave.setCreatedAt(Utilities.getCurrentDate());
-			entityToSave.setCreatedBy(request.getUser());
+			entityToSave.setCreatedBy(request.getUser() != null ? request.getUser() : dto.getUserId());
 			entityToSave.setIsDeleted(false);
-//			entityToSave.setStatusId(StatusEnum.ACTIVE);
+
 			items.add(entityToSave);
 		}
 
@@ -168,8 +168,6 @@ public class HistoriqueSuppressionMessageBusiness implements IBasicBusiness<Requ
 	}
 
 	/**
-	 * update HistoriqueSuppressionMessage by using HistoriqueSuppressionMessageDto as object.
-	 * 
 	 * @param request
 	 * @return response
 	 * 
@@ -303,11 +301,6 @@ public class HistoriqueSuppressionMessageBusiness implements IBasicBusiness<Requ
 				response.setHasError(true);
 				return response;
 			}
-
-			// -----------------------------------------------------------------------
-			// ----------- CHECK IF DATA IS USED
-			// -----------------------------------------------------------------------
-
 
 
 			existingEntity.setDeletedAt(Utilities.getCurrentDate());

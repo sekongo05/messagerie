@@ -36,4 +36,10 @@ import ci.orange.messagerie.dao.repository.base._HistoriqueSuppressionMessageRep
 @Repository
 public interface HistoriqueSuppressionMessageRepository extends JpaRepository<HistoriqueSuppressionMessage, Integer>, _HistoriqueSuppressionMessageRepository {
 
+	@Query("SELECT h FROM HistoriqueSuppressionMessage h WHERE h.message.id = :messageId AND h.user.id = :userId AND h.isDeleted = :isDeleted")
+	HistoriqueSuppressionMessage findByMessageIdAndUserId(
+		@Param("messageId") Integer messageId,
+		@Param("userId") Integer userId,
+		@Param("isDeleted") Boolean isDeleted);
+
 }

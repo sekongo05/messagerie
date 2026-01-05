@@ -36,4 +36,18 @@ import ci.orange.messagerie.dao.repository.base._ParticipantConversationReposito
 @Repository
 public interface ParticipantConversationRepository extends JpaRepository<ParticipantConversation, Integer>, _ParticipantConversationRepository {
 
+
+  @Query("SELECT DISTINCT pc1.conversation FROM ParticipantConversation pc1 " +
+         "INNER JOIN ParticipantConversation pc2 ON pc1.conversation.id = pc2.conversation.id " +
+         "WHERE pc1.user.id = :userId1 AND pc2.user.id = :userId2 " +
+         "AND pc1.conversation.typeConversation.code = :typeConversationCode " +
+         "AND pc1.isDeleted = :isDeleted AND pc2.isDeleted = :isDeleted " +
+         "AND pc1.conversation.isDeleted = :isDeleted " +
+         "AND (SELECT COUNT(p) FROM ParticipantConversation p WHERE p.conversation.id = pc1.conversation.id AND p.isDeleted = :isDeleted) = 2")
+  Conversation findPrivateConversationBetweenUsers(
+      @Param("userId1") Integer userId1,
+      @Param("userId2") Integer userId2,
+      @Param("typeConversationCode") String typeConversationCode,
+      @Param("isDeleted") Boolean isDeleted);
+
 }
