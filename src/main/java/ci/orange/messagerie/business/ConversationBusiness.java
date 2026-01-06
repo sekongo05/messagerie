@@ -91,18 +91,18 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 		Integer createurIdGlobal = request.getUser();
 		if (createurIdGlobal == null || createurIdGlobal <= 0) {
 			response.setStatus(functionalError.FIELD_EMPTY("user (créateur)", locale));
-			response.setHasError(true);
-			return response;
-		}
-		
+				response.setHasError(true);
+				return response;
+			}
+
 		// Valider que le créateur existe dans la base de données
 		User createurVerification = validateUserExists(createurIdGlobal, locale, "user (créateur)");
 		if (createurVerification == null) {
 			response.setStatus(functionalError.DATA_NOT_EXIST("user createdBy -> " + createurIdGlobal + " n'existe pas dans la base de données. L'utilisateur doit être créé avant d'être utilisé.", locale));
-			response.setHasError(true);
-			return response;
-		}
-			
+				response.setHasError(true);
+				return response;
+			}
+
 		for (ConversationDto dto : request.getDatas()) {
 
 			TypeConversation existingTypeConversation = null;
@@ -174,8 +174,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 						existingTypeConversation = typeConversationRepository.save(deletedTypeConversation);
 						log.info("TypeConversation réactivé avec code: " + typeCode + ", id: " + existingTypeConversation.getId());
 					} else {
-						// Le TypeConversation n'existe pas du tout : le créer automatiquement
-						log.info("TypeConversation avec code '" + typeCode + "' n'existe pas. Création automatique...");
+						// Le TypeConversation n'existe pas du tout : le créer automatiquementlog.info("TypeConversation avec code '" + typeCode + "' n'existe pas. Création automatique...");
 						existingTypeConversation = new TypeConversation();
 						existingTypeConversation.setCode(typeCode);
 						existingTypeConversation.setLibelle(libelle);
@@ -200,7 +199,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 					return response;
 				}
 			}
-			
+
 			// Vérification du typeConversationId (obligatoire)
 			if (typeConversationIdToUse == null || typeConversationIdToUse <= 0) {
 				response.setStatus(functionalError.FIELD_EMPTY("typeConversationId", locale));
@@ -242,8 +241,11 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 					if (interlocuteur == null) {
 						response.setStatus(functionalError.DATA_NOT_EXIST("user interlocuteurId -> " + dto.getInterlocuteurId() + 
 								" n'existe pas dans la base de données. L'utilisateur doit être créé avant d'être ajouté à une conversation.", locale));
-				response.setHasError(true);
-				return response;
+					response.setHasError(true);
+						return response;
+
+
+
 			}
 
 					if (interlocuteur.getId().equals(createurId)) {
@@ -316,8 +318,8 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 			if (dto.getDeletedBy() == null || dto.getDeletedBy() <= 0) {
 				dto.setDeletedBy(null);
 			}
-			
-			Conversation entityToSave = null;
+
+				Conversation entityToSave = null;
 			dto.setTitre(titreFinal);
 			entityToSave = ConversationTransformer.INSTANCE.toEntity(dto, existingTypeConversation);
 			entityToSave.setCreatedAt(Utilities.getCurrentDate());
@@ -430,6 +432,72 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 					
 					if (hasTextMessage || hasImageMessage) {
 						sendInitialMessage(conversationSaved, dtoOriginal.getMessageContent(), dtoOriginal.getMessageImgUrl(), createurId);
+					}
+				}
+				
+				// GESTION DES ADMINS : Pour un groupe, ajouter automatiquement le créateur comme participant admin
+				boolean isGroupConversation = false;
+				if (typeConversation != null) {
+					String typeCode = typeConversation.getCode();
+					isGroupConversation = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
+				}
+				
+				if (isGroupConversation) {
+					Integer createurId = conversationSaved.getCreatedBy();
+					
+					if (createurId == null || createurId <= 0) {
+						log.warning("Créateur du groupe id=" + conversationSaved.getId() + " a un ID invalide (null ou <= 0). Impossible d'ajouter le créateur comme participant.");
+					} else {
+						try {
+							// Vérifier directement si le créateur est déjà participant (évite les problèmes de LAZY loading)
+							ParticipantConversation participantCreateur = 
+								participantConversationRepository.findByConversationIdAndUserId(
+									conversationSaved.getId(), createurId, false);
+							
+							if (participantCreateur != null) {
+								// Le créateur existe déjà, le promouvoir admin s'il ne l'est pas déjà
+								if (!Boolean.TRUE.equals(participantCreateur.getIsAdmin())) {
+									participantCreateur.setIsAdmin(true);
+									ParticipantConversation saved = participantConversationRepository.save(participantCreateur);
+									if (saved != null && Boolean.TRUE.equals(saved.getIsAdmin())) {
+										log.info("Créateur (userId=" + createurId + ") promu admin du groupe id=" + conversationSaved.getId());
+									} else {
+										log.severe("ERREUR: Impossible de promouvoir le créateur (userId=" + createurId + ") en admin du groupe id=" + conversationSaved.getId() + ". isAdmin après save=" + (saved != null ? saved.getIsAdmin() : "null"));
+									}
+								} else {
+									log.fine("Créateur (userId=" + createurId + ") est déjà admin du groupe id=" + conversationSaved.getId());
+								}
+							} else {
+								// Le créateur n'est pas encore participant, l'ajouter automatiquement comme admin
+								User createur = validateUserExists(createurId, locale, "createdBy");
+								// Note: validateUserExists lance une exception si l'utilisateur n'existe pas,
+								// donc si on arrive ici, createur n'est jamais null
+								
+								ParticipantConversation nouveauParticipant = new ParticipantConversation();
+								nouveauParticipant.setConversation(conversationSaved);
+								nouveauParticipant.setUser(createur);
+								nouveauParticipant.setCreatedAt(Utilities.getCurrentDate());
+								nouveauParticipant.setCreatedBy(createurId);
+								nouveauParticipant.setIsDeleted(false);
+								nouveauParticipant.setHasLeft(false);
+								nouveauParticipant.setHasDefinitivelyLeft(false);
+								nouveauParticipant.setHasCleaned(false);
+								nouveauParticipant.setIsAdmin(true); // Le créateur est automatiquement admin
+								
+								ParticipantConversation saved = participantConversationRepository.save(nouveauParticipant);
+								if (saved != null && saved.getId() != null && Boolean.TRUE.equals(saved.getIsAdmin())) {
+									log.info("Créateur (userId=" + createurId + ") ajouté automatiquement comme admin du groupe id=" + conversationSaved.getId() + ", participantId=" + saved.getId());
+								} else {
+									log.severe("ERREUR: Le créateur (userId=" + createurId + ") n'a pas été correctement ajouté comme admin du groupe id=" + conversationSaved.getId() + 
+											". saved=" + (saved != null ? "non-null, id=" + saved.getId() + ", isAdmin=" + saved.getIsAdmin() : "null"));
+								}
+							}
+						} catch (RuntimeException e) {
+							// Si validateUserExists lance une exception, elle sera propagée
+							log.severe("ERREUR lors de l'ajout du créateur (userId=" + createurId + ") comme participant admin du groupe id=" + conversationSaved.getId() + " : " + e.getMessage());
+							e.printStackTrace();
+							// Ne pas faire échouer la création de conversation, juste logger l'erreur
+						}
 					}
 				}
 

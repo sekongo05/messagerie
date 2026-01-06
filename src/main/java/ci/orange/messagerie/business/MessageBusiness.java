@@ -127,57 +127,142 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 				}
 			}
 			
-			// Pour une conversation privée, seuls le créateur et l'interlocuteur peuvent envoyer des messages
-
-			if (existingConversation != null && existingConversation.getTypeConversation() != null) {
-				String typeCode = existingConversation.getTypeConversation().getCode();
-				boolean isPrivate = typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
+			if (existingConversation != null) {
+				Integer currentUserId = request.getUser();
 				
-				if (isPrivate) {
-					// Pour une conversation privée, vérifier que l'utilisateur est soit le créateur, soit l'interlocuteur
-					Integer currentUserId = request.getUser();
-					Integer createurId = existingConversation.getCreatedBy();
-					
-					if (currentUserId == null) {
-						response.setStatus(functionalError.FIELD_EMPTY("user (utilisateur connecté)", locale));
-						response.setHasError(true);
-						return response;
-					}
-					
-					// Récupérer tous les participants de la conversation privée
-					// Dans une conversation privée, il ne doit y avoir que 2 participants
-					List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
-					
-					if (participants == null || participants.isEmpty()) {
-						response.setStatus(functionalError.DATA_NOT_EXIST("Aucun participant trouvé dans cette conversation privée", locale));
-						response.setHasError(true);
-						return response;
-					}
-					
-					// Vérifier qu'il y a exactement 2 participants dans une conversation privée
-					if (participants.size() != 2) {
-						log.warning("Conversation privée id=" + existingConversation.getId() + " a " + participants.size() + " participants au lieu de 2. Cela pourrait indiquer une erreur de données.");
-					}
-					
-					// Vérifier que l'utilisateur actuel est un des deux participants
-					boolean isAuthorized = false;
-					
-					for (ParticipantConversation participant : participants) {
-						if (participant.getUser() != null && participant.getUser().getId() != null 
-								&& participant.getUser().getId().equals(currentUserId)) {
-							isAuthorized = true;
-							break;
-						}
-					}
-					
-					if (!isAuthorized) {
-						response.setStatus(functionalError.DATA_NOT_EXIST("Vous n'êtes pas autorisé à envoyer des messages dans cette conversation privée. Seuls les deux participants (créateur et interlocuteur) peuvent converser.", locale));
-						response.setHasError(true);
-						return response;
-					}
-					
-					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " est autorisé à envoyer un message dans la conversation privée id=" + existingConversation.getId());
+				if (currentUserId == null || currentUserId <= 0) {
+					response.setStatus(functionalError.FIELD_EMPTY("user (utilisateur connecté)", locale));
+					response.setHasError(true);
+					return response;
 				}
+				
+				// Récupérer tous les participants de la conversation
+				List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
+				
+				if (participants == null || participants.isEmpty()) {
+					response.setStatus(functionalError.DATA_NOT_EXIST("Aucun participant trouvé dans cette conversation", locale));
+					response.setHasError(true);
+					return response;
+				}
+				
+				// Déterminer le type de conversation pour les messages spécifiques
+				boolean isPrivate = false;
+				if (existingConversation.getTypeConversation() != null) {
+					String typeCode = existingConversation.getTypeConversation().getCode();
+					isPrivate = typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
+				}
+				
+				List<Integer> activeParticipantIds = new ArrayList<>();
+				List<String> invalidReasons = new ArrayList<>();
+				
+				for (ParticipantConversation participant : participants) {
+					// Vérifier que le participant a un utilisateur associé
+					if (participant.getUser() == null || participant.getUser().getId() == null) {
+						invalidReasons.add("Un participant n'a pas d'utilisateur associé");
+						log.warning("Participant sans utilisateur trouvé dans la conversation id=" + existingConversation.getId());
+						continue;
+					}
+					
+					Integer participantUserId = participant.getUser().getId();
+					
+					// Vérifier que l'utilisateur participant existe dans la base et n'est pas supprimé
+					User participantUser = userRepository.findOne(participantUserId, false);
+					if (participantUser == null) {
+						invalidReasons.add("L'utilisateur participant (id=" + participantUserId + ") n'existe pas ou a été supprimé");
+						log.warning("Participant avec userId=" + participantUserId + " n'existe pas ou est supprimé dans la conversation id=" + existingConversation.getId());
+						continue;
+					}
+					
+					// Vérifier que le participant n'a pas quitté définitivement la conversation
+					if (Boolean.TRUE.equals(participant.getHasDefinitivelyLeft())) {
+						invalidReasons.add("L'utilisateur participant (id=" + participantUserId + ") a quitté définitivement la conversation");
+						log.warning("Participant userId=" + participantUserId + " a quitté définitivement la conversation id=" + existingConversation.getId() + ". Il ne peut pas recevoir de messages.");
+						continue;
+					}
+					
+					// Le participant est valide et actif
+					activeParticipantIds.add(participantUserId);
+				}
+				
+				// Si aucun participant actif trouvé, retourner une erreur
+				if (activeParticipantIds.isEmpty()) {
+					String errorMessage = "Aucun participant actif trouvé dans cette conversation.";
+					if (!invalidReasons.isEmpty()) {
+						errorMessage += " Raisons : " + String.join("; ", invalidReasons);
+					}
+					response.setStatus(functionalError.DATA_NOT_EXIST(errorMessage, locale));
+					response.setHasError(true);
+					return response;
+				}
+				
+				// Avertissement si certains participants sont invalides mais qu'il reste des participants actifs
+				if (!invalidReasons.isEmpty() && !activeParticipantIds.isEmpty()) {
+					log.warning("Conversation id=" + existingConversation.getId() + " : " + activeParticipantIds.size() + " participant(s) actif(s), mais " + invalidReasons.size() + " participant(s) invalide(s) trouvé(s).");
+				}
+				
+				// Vérifier que l'expéditeur est un participant actif
+				if (!activeParticipantIds.contains(currentUserId)) {
+					String conversationType = isPrivate ? "privée" : "de groupe";
+					response.setStatus(functionalError.DATA_NOT_EXIST("Vous n'êtes pas participant actif de cette conversation " + conversationType + ". Seuls les participants actifs peuvent envoyer et recevoir des messages.", locale));
+					response.setHasError(true);
+					return response;
+				}
+				
+
+				if (isPrivate) {
+					if (activeParticipantIds.size() != 2) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'envoyer le message : une conversation privée doit avoir exactement 2 participants actifs et valides. Actuellement " + activeParticipantIds.size() + " participant(s) actif(s) trouvé(s). Seuls ces 2 participants peuvent envoyer et recevoir des messages.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					// Vérifier que l'expéditeur fait bien partie des 2 participants actifs de la conversation privée
+					if (!activeParticipantIds.contains(currentUserId)) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'envoyer le message dans cette conversation privée : vous n'êtes pas l'un des 2 participants actifs autorisés. Seuls les 2 participants de cette conversation privée peuvent envoyer et recevoir des messages.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					// Pour une conversation privée, s'assurer qu'il n'y a pas d'autres participants (vérification supplémentaire)
+					if (participants.size() > 2) {
+						log.warning("ATTENTION : Conversation privée id=" + existingConversation.getId() + " a " + participants.size() + " participants enregistrés (attendus: 2). " + activeParticipantIds.size() + " sont actifs.");
+						response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'envoyer le message : cette conversation privée a " + participants.size() + " participants au lieu de 2. Une conversation privée ne peut avoir que 2 participants. Veuillez contacter l'administrateur.", locale));
+						response.setHasError(true);
+						return response;
+					}
+				}
+				
+
+				if (dto.getUserId() != null && dto.getUserId() > 0) {
+					Integer targetUserId = dto.getUserId();
+					if (!activeParticipantIds.contains(targetUserId)) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'envoyer le message : l'utilisateur (id=" + targetUserId + ") spécifié n'est pas un participant actif de cette conversation. Seuls les participants actifs peuvent recevoir des messages.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					log.info("Validation : L'utilisateur cible (id=" + targetUserId + ") est bien un participant actif de la conversation.");
+				}
+				
+
+				if (isPrivate) {
+					// Pour une conversation privée, vérifier qu'il n'y a pas d'autres participants que les 2 autorisés
+					if (activeParticipantIds.size() != 2) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'envoyer le message : une conversation privée doit avoir exactement 2 participants actifs. Actuellement " + activeParticipantIds.size() + " participant(s) actif(s). Seuls ces 2 participants peuvent envoyer et recevoir des messages.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					// Vérifier que l'expéditeur fait partie des 2 participants autorisés
+					if (!activeParticipantIds.contains(currentUserId)) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'envoyer le message dans cette conversation privée : vous n'êtes pas l'un des 2 participants actifs autorisés. Seuls les 2 participants de cette conversation privée peuvent envoyer et recevoir des messages.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					log.info("Conversation privée validée : 2 participants actifs (ids: " + activeParticipantIds + "). L'expéditeur (id=" + currentUserId + ") et l'autre participant pourront recevoir le message.");
+				}
+				
+				log.info("Vérification des permissions : L'utilisateur " + currentUserId + " est autorisé à envoyer un message dans la conversation id=" + existingConversation.getId() + " (type: " + (isPrivate ? "privée" : "groupe") + "). " + activeParticipantIds.size() + " participant(s) actif(s) pourront recevoir le message.");
 			}
 
 			// Verify if typeMessage2 exist
@@ -387,34 +472,85 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 
 
 			// VÉRIFICATION DES PERMISSIONS : L'utilisateur doit être participant de la conversation
-			if (existingMessage.getConversation() == null) {
-				response.setStatus(functionalError.DATA_NOT_EXIST("Le message n'appartient à aucune conversation", locale));
+			// Gestion du fallback : utiliser conversationId du DTO si relation LAZY non chargée
+			Conversation conversation = existingMessage.getConversation();
+			Integer conversationIdToUse = null;
+			
+			if (conversation == null || conversation.getId() == null) {
+				// Relation LAZY non chargée, utiliser conversationId du DTO
+				if (dto.getConversationId() != null && dto.getConversationId() > 0) {
+					conversationIdToUse = dto.getConversationId();
+					conversation = conversationRepository.findOne(conversationIdToUse, false);
+					if (conversation == null) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("La conversation (id=" + conversationIdToUse + ") spécifiée n'existe pas", locale));
+						response.setHasError(true);
+						return response;
+					}
+					log.info("Conversation récupérée depuis le DTO (fallback) pour message id=" + dto.getId());
+				} else {
+					response.setStatus(functionalError.DATA_NOT_EXIST("Le message n'appartient à aucune conversation et aucun conversationId n'a été fourni", locale));
+					response.setHasError(true);
+					return response;
+				}
+			} else {
+				conversationIdToUse = conversation.getId();
+				
+				// Vérifier cohérence si conversationId fourni dans DTO
+				if (dto.getConversationId() != null && dto.getConversationId() > 0 
+						&& !dto.getConversationId().equals(conversationIdToUse)) {
+					response.setStatus(functionalError.DATA_NOT_EXIST("Le conversationId fourni ne correspond pas à la conversation du message", locale));
+					response.setHasError(true);
+					return response;
+				}
+			}
+			
+			// Récupérer participants et vérifier participation
+			List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(conversationIdToUse, false);
+			
+			if (participants == null || participants.isEmpty()) {
+				response.setStatus(functionalError.DATA_NOT_EXIST("Aucun participant trouvé dans cette conversation", locale));
 				response.setHasError(true);
 				return response;
 			}
 			
-			Conversation conversation = existingMessage.getConversation();
-			List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(conversation.getId(), false);
-			
-			// Vérifier que l'utilisateur actuel est participant de la conversation
+			// Vérifier que l'utilisateur actuel est participant (gestion robuste du LAZY loading)
 			boolean isParticipant = false;
 			User currentUser = null;
 			
-			if (participants != null && !participants.isEmpty()) {
-				for (ParticipantConversation participant : participants) {
-					if (participant.getUser() != null && participant.getUser().getId() != null 
-							&& participant.getUser().getId().equals(currentUserId)) {
-						isParticipant = true;
-						currentUser = participant.getUser();
-						break;
+			for (ParticipantConversation participant : participants) {
+				Integer participantUserId = null;
+				
+				try {
+					// Récupérer ID utilisateur depuis relation
+					if (participant.getUser() != null && participant.getUser().getId() != null) {
+						participantUserId = participant.getUser().getId();
+						if (participantUserId.equals(currentUserId)) {
+							isParticipant = true;
+							currentUser = participant.getUser();
+							break;
+						}
 					}
+				} catch (Exception e) {
+					// Relation LAZY non chargée, ignorer ce participant
+					log.warning("Erreur d'accès à la relation user du participant id=" + participant.getId() + ": " + e.getMessage());
 				}
 			}
 			
+			// Si pas trouvé, s'assurer que currentUser est récupéré pour la suite
 			if (!isParticipant) {
 				response.setStatus(functionalError.DATA_NOT_EXIST("Vous n'êtes pas participant de cette conversation. Vous ne pouvez pas supprimer ce message.", locale));
 				response.setHasError(true);
 				return response;
+			}
+
+			// S'assurer que currentUser est défini
+			if (currentUser == null) {
+				currentUser = userRepository.findOne(currentUserId, false);
+				if (currentUser == null) {
+					response.setStatus(functionalError.DATA_NOT_EXIST("L'utilisateur (id=" + currentUserId + ") n'existe pas", locale));
+					response.setHasError(true);
+					return response;
+				}
 			}
 			
 
@@ -520,4 +656,84 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 
 		return dto;
 	}
+	
+	/**
+	 * Détermine si une conversation est de type privée.
+	 * 
+	 * @param conversation La conversation à vérifier
+	 * @return true si la conversation est privée, false sinon
+	 */
+	private boolean isPrivateConversation(Conversation conversation) {
+		if (conversation == null || conversation.getTypeConversation() == null) {
+			return false;
+		}
+		String typeCode = conversation.getTypeConversation().getCode();
+		return typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
+	}
+	
+	/**
+	 * Valide les participants d'une conversation et retourne la liste des IDs des participants actifs.
+	 * Un participant est considéré comme actif si :
+	 * - Il a un utilisateur associé
+	 * - L'utilisateur existe dans la base et n'est pas supprimé
+	 * - Le participant n'a pas quitté définitivement la conversation
+	 * 
+	 * @param participants Liste des participants à valider
+	 * @param conversationId ID de la conversation (pour les logs)
+	 * @param locale Locale pour les messages d'erreur
+	 * @param response Réponse à remplir en cas d'erreur
+	 * @return Liste des IDs des participants actifs, ou null si une erreur critique est survenue
+	 */
+	private List<Integer> validateAndGetActiveParticipants(List<ParticipantConversation> participants, Integer conversationId, Locale locale, Response<MessageDto> response) {
+		List<Integer> activeParticipantIds = new ArrayList<>();
+		List<String> invalidReasons = new ArrayList<>();
+		
+		for (ParticipantConversation participant : participants) {
+			// Vérifier que le participant a un utilisateur associé
+			if (participant.getUser() == null || participant.getUser().getId() == null) {
+				invalidReasons.add("Un participant n'a pas d'utilisateur associé");
+				log.warning("Participant sans utilisateur trouvé dans la conversation id=" + conversationId);
+				continue;
+			}
+			
+			Integer participantUserId = participant.getUser().getId();
+			
+			// Vérifier que l'utilisateur participant existe dans la base et n'est pas supprimé
+			User participantUser = userRepository.findOne(participantUserId, false);
+			if (participantUser == null) {
+				invalidReasons.add("L'utilisateur participant (id=" + participantUserId + ") n'existe pas ou a été supprimé");
+				log.warning("Participant avec userId=" + participantUserId + " n'existe pas ou est supprimé dans la conversation id=" + conversationId);
+				continue;
+			}
+			
+			// Vérifier que le participant n'a pas quitté définitivement la conversation
+			if (Boolean.TRUE.equals(participant.getHasDefinitivelyLeft())) {
+				invalidReasons.add("L'utilisateur participant (id=" + participantUserId + ") a quitté définitivement la conversation");
+				log.warning("Participant userId=" + participantUserId + " a quitté définitivement la conversation id=" + conversationId + ". Il ne peut pas recevoir de messages.");
+				continue;
+			}
+			
+			// Le participant est valide et actif
+			activeParticipantIds.add(participantUserId);
+		}
+		
+		// Si aucun participant actif trouvé, retourner une erreur
+		if (activeParticipantIds.isEmpty()) {
+			String errorMessage = "Aucun participant actif trouvé dans cette conversation.";
+			if (!invalidReasons.isEmpty()) {
+				errorMessage += " Raisons : " + String.join("; ", invalidReasons);
+			}
+			response.setStatus(functionalError.DATA_NOT_EXIST(errorMessage, locale));
+			response.setHasError(true);
+			return null;
+		}
+		
+		// Avertissement si certains participants sont invalides mais qu'il reste des participants actifs
+		if (!invalidReasons.isEmpty() && !activeParticipantIds.isEmpty()) {
+			log.warning("Conversation id=" + conversationId + " : " + activeParticipantIds.size() + " participant(s) actif(s), mais " + invalidReasons.size() + " participant(s) invalide(s) trouvé(s).");
+		}
+		
+		return activeParticipantIds;
+	}
 }
+

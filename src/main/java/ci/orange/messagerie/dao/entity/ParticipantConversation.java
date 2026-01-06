@@ -96,6 +96,9 @@ public class ParticipantConversation implements Serializable, Cloneable {
     @Column(name="has_cleaned")
     private Boolean    hasCleaned   ;
 
+    @Column(name="is_admin")
+    private Boolean    isAdmin      ;
+
 	// "conversationId" (column "conversation_id") is not defined by itself because used as FK in a link 
 	// "userId" (column "user_id") is not defined by itself because used as FK in a link 
 

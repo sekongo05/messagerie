@@ -33,6 +33,9 @@ public class MessageDto extends _MessageDto{
 
     private String    statusLibelle               ;
     
+
+    private Integer   userId                      ;
+    
 	//----------------------------------------------------------------------
     // clone METHOD
     //----------------------------------------------------------------------

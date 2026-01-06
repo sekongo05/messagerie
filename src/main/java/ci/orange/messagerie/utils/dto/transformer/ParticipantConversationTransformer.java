@@ -91,6 +91,7 @@ public interface ParticipantConversationTransformer {
 		@Mapping(source="dto.hasLeft", target="hasLeft"),
 		@Mapping(source="dto.hasDefinitivelyLeft", target="hasDefinitivelyLeft"),
 		@Mapping(source="dto.hasCleaned", target="hasCleaned"),
+		@Mapping(source="dto.isAdmin", target="isAdmin"),
 		@Mapping(source="user", target="user"),
 		@Mapping(source="conversation", target="conversation"),
 	})

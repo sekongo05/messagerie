@@ -191,7 +191,7 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			}
 			
 
-			//  Seul le créateur peut ajouter des membres à un groupe
+			// Pour un groupe, seul un admin peut ajouter des membres
 			// Une conversation privée ne peut avoir que 2 participants maximum
 			if (existingConversation != null && existingConversation.getTypeConversation() != null) {
 				String typeCode = existingConversation.getTypeConversation().getCode();
@@ -199,16 +199,60 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 				boolean isPrivate = typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
 				
 				if (isGroup) {
-					// Pour un groupe, seul le créateur peut ajouter des membres
-					Integer createurId = existingConversation.getCreatedBy();
+					// Pour un groupe, seul un admin peut ajouter des membres
 					Integer currentUserId = request.getUser();
 					
-					if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
-						response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut ajouter des membres. Vous n'êtes pas autorisé à ajouter des membres à ce groupe.", locale));
+					if (currentUserId == null) {
+						response.setStatus(functionalError.FIELD_EMPTY("user (utilisateur connecté)", locale));
 						response.setHasError(true);
 						return response;
 					}
-					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + existingConversation.getId() + ") est autorisé à ajouter des membres.");
+					
+					Integer createurId = existingConversation.getCreatedBy();
+					
+					// Vérifier que l'utilisateur actuel est admin du groupe
+					List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
+					boolean isCurrentUserAdmin = false;
+					
+					if (existingParticipants != null && !existingParticipants.isEmpty()) {
+						for (ParticipantConversation participant : existingParticipants) {
+							if (participant.getUser() != null && participant.getUser().getId() != null 
+									&& participant.getUser().getId().equals(currentUserId)
+									&& Boolean.TRUE.equals(participant.getIsAdmin())) {
+								isCurrentUserAdmin = true;
+								break;
+							}
+						}
+						
+						// Si pas admin mais que c'est le créateur et qu'il est déjà participant, le promouvoir
+						if (!isCurrentUserAdmin && createurId != null && createurId.equals(currentUserId)) {
+							for (ParticipantConversation participant : existingParticipants) {
+								if (participant.getUser() != null && participant.getUser().getId() != null 
+										&& participant.getUser().getId().equals(currentUserId)) {
+									participant.setIsAdmin(true);
+									participantConversationRepository.save(participant);
+									log.info("Créateur (userId=" + currentUserId + ") promu admin du groupe id=" + existingConversation.getId());
+									isCurrentUserAdmin = true;
+									break;
+								}
+							}
+						}
+					}
+					
+					// Si aucun participant n'existe encore OU si c'est le créateur qui ajoute (même s'il n'est pas encore participant)
+					if (!isCurrentUserAdmin) {
+						if (createurId != null && createurId.equals(currentUserId)) {
+							// Le créateur peut ajouter des membres même s'il n'est pas encore participant (première fois)
+							log.info("Créateur (userId=" + currentUserId + ") autorisé à ajouter des membres au groupe id=" + existingConversation.getId() + " (première fois ou pas encore participant)");
+						} else {
+							// Ce n'est pas le créateur et ce n'est pas un admin
+							response.setStatus(functionalError.DATA_NOT_EXIST("Seul un admin du groupe (ou le créateur) peut ajouter des membres. Vous n'êtes pas autorisé à ajouter des membres à ce groupe.", locale));
+							response.setHasError(true);
+							return response;
+						}
+					} else {
+						log.info("Vérification des permissions : L'admin (userId=" + currentUserId + ") est autorisé à ajouter des membres au groupe id=" + existingConversation.getId());
+					}
 				} else if (isPrivate) {
 					// Pour une conversation privée, vérifier qu'elle n'a pas déjà 2 participants
 					List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
@@ -247,6 +291,43 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			entityToSave.setCreatedAt(Utilities.getCurrentDate());
 			entityToSave.setCreatedBy(request.getUser());
 			entityToSave.setIsDeleted(false);
+			
+			// GESTION DU STATUT ADMIN
+			if (existingConversation != null && existingConversation.getTypeConversation() != null) {
+				String typeCode = existingConversation.getTypeConversation().getCode();
+				boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
+				
+				if (isGroup) {
+					// Pour un groupe, vérifier si le participant ajouté est le créateur
+					Integer createurId = existingConversation.getCreatedBy();
+					Integer participantUserId = dto.getUserId();
+					
+					// Si le participant est le créateur du groupe, il devient automatiquement admin
+					if (createurId != null && participantUserId != null && createurId.equals(participantUserId)) {
+						entityToSave.setIsAdmin(true);
+						log.info("Créateur (userId=" + participantUserId + ") ajouté comme admin du groupe id=" + existingConversation.getId());
+					} else {
+						// Pour les autres membres, isAdmin = false par défaut (sauf si explicitement défini à true par un admin)
+						if (entityToSave.getIsAdmin() == null) {
+							entityToSave.setIsAdmin(false);
+						}
+						
+						// Si isAdmin est défini à true par un admin, loguer l'action
+						if (Boolean.TRUE.equals(entityToSave.getIsAdmin())) {
+							log.info("Nouveau membre (userId=" + participantUserId + ") ajouté comme admin par un admin existant dans le groupe id=" + existingConversation.getId());
+						}
+					}
+				} else {
+					// Pour les conversations privées, isAdmin n'a pas de sens, donc false
+					entityToSave.setIsAdmin(false);
+				}
+			} else {
+				// Si pas de conversation, isAdmin = false par défaut
+				if (entityToSave.getIsAdmin() == null) {
+					entityToSave.setIsAdmin(false);
+				}
+			}
+			
 //			entityToSave.setStatusId(StatusEnum.ACTIVE);
 			items.add(entityToSave);
 		}
@@ -336,22 +417,45 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 					return response;
 				}
 				
-				//  Seul le créateur peut modifier des participants dans un groupe
-
+				// Pour un groupe, seul un admin peut modifier des participants
+				// Gestion spéciale pour la modification du statut admin
 				if (existingConversation.getTypeConversation() != null) {
 					String typeCode = existingConversation.getTypeConversation().getCode();
 					boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
 					
 					if (isGroup) {
-						Integer createurId = existingConversation.getCreatedBy();
 						Integer currentUserId = request.getUser();
 						
-						if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
-							response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut modifier les membres. Vous n'êtes pas autorisé à modifier des participants de ce groupe.", locale));
-							response.setHasError(true);
-							return response;
+						// Si modification du statut admin, vérifier que l'utilisateur qui modifie est admin
+						if (dto.getIsAdmin() != null) {
+							List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
+							boolean isCurrentUserAdmin = false;
+							
+							if (existingParticipants != null) {
+								for (ParticipantConversation participant : existingParticipants) {
+									if (participant.getUser() != null && participant.getUser().getId() != null 
+											&& participant.getUser().getId().equals(currentUserId)
+											&& Boolean.TRUE.equals(participant.getIsAdmin())) {
+										isCurrentUserAdmin = true;
+										break;
+									}
+								}
+							}
+							
+							if (!isCurrentUserAdmin) {
+								response.setStatus(functionalError.DATA_NOT_EXIST("Seul un admin du groupe peut promouvoir ou destituer d'autres membres comme admin. Vous n'êtes pas admin de ce groupe.", locale));
+								response.setHasError(true);
+								return response;
+							}
+							
+							if (Boolean.TRUE.equals(dto.getIsAdmin())) {
+								log.info("Admin (userId=" + currentUserId + ") promeut le participant id=" + entityToSave.getId() + " comme admin du groupe id=" + existingConversation.getId());
+							} else {
+								log.info("Admin (userId=" + currentUserId + ") destitue le participant id=" + entityToSave.getId() + " du statut admin du groupe id=" + existingConversation.getId());
+							}
 						}
-						log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + existingConversation.getId() + ") est autorisé à modifier des participants.");
+						
+						log.info("Vérification des permissions : L'admin (userId=" + currentUserId + ") est autorisé à modifier des participants du groupe id=" + existingConversation.getId());
 					}
 				}
 				
@@ -363,13 +467,25 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 					String typeCode = currentConversation.getTypeConversation().getCode();
 					boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
 					
-					if (isGroup) {
-						// Pour un groupe, seul le créateur peut modifier les participants
-						Integer createurId = currentConversation.getCreatedBy();
+					if (isGroup && dto.getIsAdmin() != null) {
+						// Pour un groupe, seul un admin peut modifier le statut admin
 						Integer currentUserId = request.getUser();
+						List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(currentConversation.getId(), false);
+						boolean isCurrentUserAdmin = false;
 						
-						if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
-							response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut modifier les membres. Vous n'êtes pas autorisé à modifier des participants de ce groupe.", locale));
+						if (existingParticipants != null) {
+							for (ParticipantConversation participant : existingParticipants) {
+								if (participant.getUser() != null && participant.getUser().getId() != null 
+										&& participant.getUser().getId().equals(currentUserId)
+										&& Boolean.TRUE.equals(participant.getIsAdmin())) {
+									isCurrentUserAdmin = true;
+									break;
+								}
+							}
+						}
+						
+						if (!isCurrentUserAdmin) {
+							response.setStatus(functionalError.DATA_NOT_EXIST("Seul un admin du groupe peut promouvoir ou destituer d'autres membres comme admin.", locale));
 							response.setHasError(true);
 							return response;
 						}
@@ -414,6 +530,12 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			}
 			if (dto.getHasCleaned() != null) {
 				entityToSave.setHasCleaned(dto.getHasCleaned());
+			}
+			if (dto.getIsAdmin() != null) {
+				entityToSave.setIsAdmin(dto.getIsAdmin());
+			} else {
+				// Si isAdmin n'est pas spécifié, conserver la valeur actuelle
+				entityToSave.setIsAdmin(entityToSave.getIsAdmin() != null ? entityToSave.getIsAdmin() : false);
 			}
 			entityToSave.setUpdatedAt(Utilities.getCurrentDate());
 			entityToSave.setUpdatedBy(request.getUser());
@@ -488,7 +610,7 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			}
 			
 
-			// Seul le créateur peut supprimer des membres d'un groupe
+			// Pour un groupe, seul un admin peut supprimer des membres
 
 			Conversation conversation = existingEntity.getConversation();
 			if (conversation != null && conversation.getTypeConversation() != null) {
@@ -496,16 +618,57 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 				boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
 				
 				if (isGroup) {
-					// Pour un groupe, seul le créateur peut supprimer des membres
-					Integer createurId = conversation.getCreatedBy();
+					// Pour un groupe, seul un admin peut supprimer des membres
 					Integer currentUserId = request.getUser();
 					
-					if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
-						response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut supprimer des membres. Vous n'êtes pas autorisé à supprimer des membres de ce groupe.", locale));
+					if (currentUserId == null) {
+						response.setStatus(functionalError.FIELD_EMPTY("user (utilisateur connecté)", locale));
 						response.setHasError(true);
 						return response;
 					}
-					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + conversation.getId() + ") est autorisé à supprimer des membres.");
+					
+					// Vérifier que l'utilisateur actuel est admin du groupe
+					List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(conversation.getId(), false);
+					boolean isCurrentUserAdmin = false;
+					
+					if (existingParticipants != null) {
+						for (ParticipantConversation participant : existingParticipants) {
+							if (participant.getUser() != null && participant.getUser().getId() != null 
+									&& participant.getUser().getId().equals(currentUserId)
+									&& Boolean.TRUE.equals(participant.getIsAdmin())) {
+								isCurrentUserAdmin = true;
+								break;
+							}
+						}
+					}
+					
+					// Si pas admin, vérifier si c'est le créateur (pour compatibilité)
+					if (!isCurrentUserAdmin) {
+						Integer createurId = conversation.getCreatedBy();
+						if (createurId != null && createurId.equals(currentUserId)) {
+							// Le créateur n'est pas encore marqué comme admin, le promouvoir
+							if (existingParticipants != null) {
+								for (ParticipantConversation participant : existingParticipants) {
+									if (participant.getUser() != null && participant.getUser().getId() != null 
+											&& participant.getUser().getId().equals(currentUserId)) {
+										participant.setIsAdmin(true);
+										participantConversationRepository.save(participant);
+										log.info("Créateur (userId=" + currentUserId + ") promu admin lors de la suppression d'un membre");
+										isCurrentUserAdmin = true;
+										break;
+									}
+								}
+							}
+						}
+					}
+					
+					if (!isCurrentUserAdmin) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Seul un admin du groupe peut supprimer des membres. Vous n'êtes pas admin de ce groupe.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					log.info("Vérification des permissions : L'admin (userId=" + currentUserId + ") est autorisé à supprimer des membres du groupe id=" + conversation.getId());
 				}
 				// Pour les conversations privées, les participants peuvent se retirer eux-mêmes
 			}
