@@ -99,12 +99,22 @@
                            {
                                "key": "Content-Type",
                                "value": "application/json"
+                           },
+                           {
+                               "key": "lang",
+                               "value": "fr",
+                               "description": "Langue de la réponse (fr/en)"
                            }
                        ],
                        "body": {
                            "mode": "raw",
-			            "raw": "{ \t\"user\":\"1\", \t\"isSimpleLoading\":false, \t\"data\":{   \t\t\"id\": \"\", \t\t\"titre\": \"\", \t\t\"createdAt\": \"\", \t\t\"updatedAt\": \"\", \t\t\"deletedAt\": \"\", \t\t\"createdBy\": \"\", \t\t\"updatedBy\": \"\", \t\t\"deletedBy\": \"\", \t\t\"isDeleted\": \"\", \t\t\"typeConversationId\": \"\" \t}   }"
-},
+                           "raw": "{\n  \"user\": 1,\n  \"isSimpleLoading\": false,\n  \"datas\": [\n    {}\n  ]\n}",
+                           "options": {
+                               "raw": {
+                                   "language": "json"
+                               }
+                           }
+                       },
                        "url": {
                            "raw": "{{appUrl}}/conversation/getByCriteria",
                            "host": [
@@ -114,9 +124,52 @@
                                "conversation",
                                "getByCriteria"
                            ]
-                       }
+                       },
+                       "description": "Récupère toutes les conversations avec leur dernier message.\n\n**Réponse attendue :**\nChaque conversation contient :\n- `messageContent` : contenu du dernier message\n- `messageImgUrl` : URL de l'image du dernier message (si présente)\n\n**Exemples de requêtes :**\n\n1. **Récupérer toutes les conversations :**\n```json\n{\n  \"user\": 1,\n  \"isSimpleLoading\": false,\n  \"datas\": [{}]\n}\n```\n\n2. **Rechercher par titre :**\n```json\n{\n  \"user\": 1,\n  \"isSimpleLoading\": false,\n  \"datas\": [\n    {\n      \"titre\": \"recherche\"\n    }\n  ]\n}\n```\n\n3. **Récupérer une conversation spécifique :**\n```json\n{\n  \"user\": 1,\n  \"isSimpleLoading\": false,\n  \"datas\": [\n    {\n      \"id\": 1\n    }\n  ]\n}\n```\n\n4. **Filtrer par type de conversation :**\n```json\n{\n  \"user\": 1,\n  \"isSimpleLoading\": false,\n  \"datas\": [\n    {\n      \"typeConversationId\": 1\n    }\n  ]\n}\n```"
                    },
-                   "response": []
+                   "response": [
+                       {
+                           "name": "Succès - Toutes les conversations avec dernier message",
+                           "originalRequest": {
+                               "method": "POST",
+                               "header": [
+                                   {
+                                       "key": "Content-Type",
+                                       "value": "application/json"
+                                   },
+                                   {
+                                       "key": "lang",
+                                       "value": "fr"
+                                   }
+                               ],
+                               "body": {
+                                   "mode": "raw",
+                                   "raw": "{\n  \"user\": 1,\n  \"isSimpleLoading\": false,\n  \"datas\": [{}]\n}",
+                                   "options": {
+                                       "raw": {
+                                           "language": "json"
+                                       }
+                                   }
+                               },
+                               "url": {
+                                   "raw": "{{appUrl}}/conversation/getByCriteria",
+                                   "host": ["{{appUrl}}"],
+                                   "path": ["conversation", "getByCriteria"]
+                               }
+                           },
+                           "status": "OK",
+                           "code": 200,
+                           "_postman_previewlanguage": "json",
+                           "header": [
+                               {
+                                   "key": "Content-Type",
+                                   "value": "application/json"
+                               }
+                           ],
+                           "cookie": [],
+                           "body": "{\n  \"hasError\": false,\n  \"status\": {\n    \"code\": \"800\",\n    \"message\": \"Operation effectuee avec succes\"\n  },\n  \"items\": [\n    {\n      \"id\": 1,\n      \"titre\": \"John Doe\",\n      \"typeConversationId\": 1,\n      \"typeConversationLibelle\": \"Conversation Privée\",\n      \"typeConversationCode\": \"PRIVEE\",\n      \"createdAt\": \"08/01/2026\",\n      \"messageContent\": \"Salut, ça va ?\",\n      \"messageImgUrl\": null\n    },\n    {\n      \"id\": 2,\n      \"titre\": \"Jane Smith\",\n      \"typeConversationId\": 1,\n      \"typeConversationLibelle\": \"Conversation Privée\",\n      \"typeConversationCode\": \"PRIVEE\",\n      \"createdAt\": \"08/01/2026\",\n      \"messageContent\": \"Merci pour ton aide !\",\n      \"messageImgUrl\": \"/files/images/uuid-image.jpg\"\n    }\n  ],\n  \"count\": 2\n}"
+                       }
+                   ]
                }
 			]
 		},
@@ -260,6 +313,66 @@
 								"create"
 							]
 						}
+					},
+					"response": []
+				},
+				{
+					"name": "message.create (avec fichier)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "lang",
+								"value": "fr",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "conversationId",
+									"value": "1",
+									"type": "text",
+									"description": "ID de la conversation (OBLIGATOIRE)"
+								},
+								{
+									"key": "file",
+									"type": "file",
+									"src": [],
+									"description": "Fichier image à uploader (jpg, jpeg, png, gif, webp) - optionnel"
+								},
+								{
+									"key": "content",
+									"value": "Message avec image",
+									"type": "text",
+									"description": "Contenu du message (optionnel)"
+								},
+								{
+									"key": "typeMessage",
+									"value": "1",
+									"type": "text",
+									"description": "Type de message (optionnel)"
+								},
+								{
+									"key": "user",
+									"value": "1",
+									"type": "text",
+									"description": "ID de l'utilisateur (optionnel)"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{appUrl}}/message/create-with-file",
+							"host": [
+								"{{appUrl}}"
+							],
+							"path": [
+								"message",
+								"create-with-file"
+							]
+						},
+						"description": "Créer un message avec upload de fichier image. Le fichier sera sauvegardé et l'URL sera automatiquement ajoutée au message. IMPORTANT: conversationId est OBLIGATOIRE."
 					},
 					"response": []
 				},

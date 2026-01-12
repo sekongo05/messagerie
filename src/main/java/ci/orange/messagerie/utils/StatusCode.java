@@ -47,4 +47,5 @@ public class StatusCode {
 	public static final String	FUNC_DATA_NOT_DELETABLE			= "921";
 	public static final String	FUNC_DATA_TOO_LONG				= "922";
 	public static final String	FUNC_DATA_DUPLICATE				= "923";
+	public static final String	FUNC_FILE_UPLOAD_ERROR			= "924";
 }

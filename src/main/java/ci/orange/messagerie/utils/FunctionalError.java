@@ -9,7 +9,7 @@ package ci.orange.messagerie.utils;
 
 import java.util.Locale;
 
-import javax.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlRootElement;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.MessageSource;
@@ -176,6 +176,12 @@ public class FunctionalError {
 	public Status DATA_DUPLICATE(String message, Locale locale) {
 		status.setCode(StatusCode.FUNC_DATA_DUPLICATE);
 		status.setMessage(messageSource.getMessage("StatusMessage.FUNC_DATA_DUPLICATE", new Object[] {}, locale) + ": " + message);
+		return status;
+	}
+
+	public Status FILE_UPLOAD_ERROR(String message, Locale locale) {
+		status.setCode(StatusCode.FUNC_FILE_UPLOAD_ERROR);
+		status.setMessage(messageSource.getMessage("StatusMessage.FUNC_FILE_UPLOAD_ERROR", new Object[] {}, locale) + ": " + message);
 		return status;
 	}
 }

@@ -43,8 +43,16 @@ public interface ConversationTransformer {
 		@Mapping(source="entity.typeConversation.id", target="typeConversationId"),
 		@Mapping(source="entity.typeConversation.libelle", target="typeConversationLibelle"),
 		@Mapping(source="entity.typeConversation.code", target="typeConversationCode"),
+		@Mapping(source="entity.typeConversation", target="typeConversation"),
 	})
 	ConversationDto toDto(Conversation entity) throws ParseException;
+
+	default String map(TypeConversation typeConversation) {
+		if (typeConversation == null) {
+			return null;
+		}
+		return typeConversation.getCode();
+	}
 
 	@IterableMapping(qualifiedBy = {FullTransformerQualifier.class})
     List<ConversationDto> toDtos(List<Conversation> entities) throws ParseException;

@@ -38,5 +38,6 @@ public class StatusMessage {
 	public static final String	FUNC_INVALID_CODE_LANGUAGE		= "le code de la langue n'est pas valide";
 	public static final String	FUNC_FILE_GENERATION_ERROR		= "Erreur de génération de fichier";
 	public static final String	FUNC_DISALLOWED_OPERATION		= "Opération interdite/réfusée";
+	public static final String	FUNC_FILE_UPLOAD_ERROR			= "Erreur lors de l'upload de fichier";
 
 }

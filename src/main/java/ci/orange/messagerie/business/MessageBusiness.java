@@ -93,14 +93,18 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 		for (MessageDto dto : request.getDatas()) {
 			// Definir les parametres obligatoires
 			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
-			fieldsToVerify.put("content", dto.getContent());
-			fieldsToVerify.put("imgUrl", dto.getImgUrl());
-//			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
-//			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
-//			fieldsToVerify.put("typeMessage", dto.getTypeMessage());
 			fieldsToVerify.put("conversationId", dto.getConversationId());
 			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
 				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
+				response.setHasError(true);
+				return response;
+			}
+			
+			// Vérifier qu'au moins content ou imgUrl est fourni
+			boolean hasContent = Utilities.notBlank(dto.getContent());
+			boolean hasImgUrl = Utilities.notBlank(dto.getImgUrl());
+			if (!hasContent && !hasImgUrl) {
+				response.setStatus(functionalError.FIELD_EMPTY("content ou imgUrl (au moins un doit être fourni)", locale));
 				response.setHasError(true);
 				return response;
 			}

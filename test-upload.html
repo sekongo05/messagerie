@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Upload Image - Messagerie</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="file"],
+        input[type="number"],
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #result {
+            margin-top: 30px;
+            padding: 15px;
+            border-radius: 4px;
+            display: none;
+        }
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .image-preview {
+            margin-top: 10px;
+            max-width: 300px;
+            max-height: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📤 Test Upload d'Image</h1>
+        
+        <form id="uploadForm">
+            <div class="form-group">
+                <label for="fileInput">Fichier Image *</label>
+                <input type="file" id="fileInput" accept="image/*" required>
+                <img id="imagePreview" class="image-preview" alt="Aperçu">
+            </div>
+
+            <div class="form-group">
+                <label for="conversationId">ID Conversation *</label>
+                <input type="number" id="conversationId" value="1" required>
+            </div>
+
+            <div class="form-group">
+                <label for="content">Message (optionnel)</label>
+                <input type="text" id="content" placeholder="Votre message...">
+            </div>
+
+            <div class="form-group">
+                <label for="userId">ID Utilisateur (optionnel)</label>
+                <input type="number" id="userId" value="1">
+            </div>
+
+            <div class="form-group">
+                <label for="typeMessage">Type Message (optionnel)</label>
+                <input type="number" id="typeMessage" placeholder="1">
+            </div>
+
+            <button type="button" onclick="uploadImage()">Uploader l'image</button>
+        </form>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        // Aperçu de l'image
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const preview = document.getElementById('imagePreview');
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        async function uploadImage() {
+            const fileInput = document.getElementById('fileInput');
+            const conversationId = document.getElementById('conversationId').value;
+            const content = document.getElementById('content').value;
+            const userId = document.getElementById('userId').value;
+            const typeMessage = document.getElementById('typeMessage').value;
+            const resultDiv = document.getElementById('result');
+
+            // Validation
+            if (!fileInput.files[0]) {
+                showResult('Veuillez sélectionner un fichier', 'error');
+                return;
+            }
+
+            if (!conversationId) {
+                showResult('Veuillez entrer un ID de conversation', 'error');
+                return;
+            }
+
+            // Préparer FormData
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('conversationId', conversationId);
+            if (content) formData.append('content', content);
+            if (userId) formData.append('user', userId);
+            if (typeMessage) formData.append('typeMessage', typeMessage);
+
+            // Afficher le chargement
+            showResult('Upload en cours...', 'success');
+
+            try {
+                const response = await fetch('http://localhost:8080/message/upload', {
+                    method: 'POST',
+                    headers: {
+                        'lang': 'fr'
+                    },
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (!result.hasError) {
+                    const message = result.items && result.items.length > 0 
+                        ? result.items[0] 
+                        : result;
+                    
+                    let successMsg = '✅ Image uploadée avec succès !\n\n';
+                    successMsg += 'ID Message: ' + (message.id || 'N/A') + '\n';
+                    successMsg += 'URL Image: ' + (message.imgUrl || 'N/A') + '\n';
+                    if (message.imgUrl) {
+                        successMsg += '\nAccéder à l\'image: http://localhost:8080' + message.imgUrl;
+                    }
+                    successMsg += '\n\nRéponse complète:\n' + JSON.stringify(result, null, 2);
+                    
+                    showResult(successMsg, 'success');
+                } else {
+                    showResult('❌ Erreur: ' + result.status.message, 'error');
+                }
+            } catch (error) {
+                showResult('❌ Erreur de connexion: ' + error.message + '\n\nVérifiez que:\n- L\'application est démarrée sur le port 8080\n- CORS est configuré correctement', 'error');
+            }
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = type;
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = '<pre>' + message + '</pre>';
+        }
+    </script>
+</body>
+</html>
+

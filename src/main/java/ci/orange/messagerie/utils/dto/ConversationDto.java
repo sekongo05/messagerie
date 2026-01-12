@@ -35,7 +35,11 @@ public class ConversationDto extends _ConversationDto{
     private String    typeConversation;
     private Integer   interlocuteurId;
     private String    messageContent;
+    private String    senderFullName;
+    private String    lastMessage;// Nom complet de l'expéditeur du dernier message
+    private String recipientFullName;
     private String    messageImgUrl;
+
     
 	//----------------------------------------------------------------------
     // clone METHOD
@@ -44,4 +48,6 @@ public class ConversationDto extends _ConversationDto{
 	public Object clone() throws CloneNotSupportedException {
 		return super.clone();
 	}
+
+
 }

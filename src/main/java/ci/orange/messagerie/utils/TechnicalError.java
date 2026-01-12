@@ -9,7 +9,7 @@ package ci.orange.messagerie.utils;
 
 import java.util.Locale;
 
-import javax.xml.bind.annotation.XmlRootElement;
+import jakarta.xml.bind.annotation.XmlRootElement;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.MessageSource;

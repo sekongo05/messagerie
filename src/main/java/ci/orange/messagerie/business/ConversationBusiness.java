@@ -642,15 +642,96 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 			List<ConversationDto> itemsDto = (Utilities.isTrue(request.getIsSimpleLoading())) ? ConversationTransformer.INSTANCE.toLiteDtos(items) : ConversationTransformer.INSTANCE.toDtos(items);
 
 			final int size = items.size();
+
 			List<String>  listOfError      = Collections.synchronizedList(new ArrayList<String>());
-			itemsDto.parallelStream().forEach(dto -> {
+			// Utiliser map() au lieu de forEach() pour que les modifications soient persistées
+			itemsDto = itemsDto.parallelStream().map(dto -> {
 				try {
 					dto = getFullInfos(dto, size, request.getIsSimpleLoading(), locale);
+					
+					// Récupérer le dernier message de la conversation
+					if (dto.getId() != null) {
+						Message lastMessage = conversationRepository.findLastMessageByConversationId(dto.getId());
+						if (lastMessage != null) {
+							dto.setMessageContent(lastMessage.getContent());
+							dto.setMessageImgUrl(lastMessage.getImgUrl());
+							
+							// Assigner le champ lastMessage avec le contenu du message ou un indicateur
+							String lastMessageContent = null;
+							if (Utilities.notBlank(lastMessage.getContent())) {
+								lastMessageContent = lastMessage.getContent();
+							} else if (Utilities.notBlank(lastMessage.getImgUrl())) {
+								lastMessageContent = "[Image]";
+							}
+							dto.setLastMessage(lastMessageContent);
+							
+							if (lastMessage.getCreatedAt() != null) {
+//								 dto.setLastMessageDate(dateFormat.format(lastMessage.getCreatedAt()));
+							}
+							
+							// Récupérer les noms de l'expéditeur et du destinataire pour une conversation privée
+							// Vérifier si c'est une conversation privée (typeConversationCode = PRIVEE ou PRIVATE)
+							if (dto.getTypeConversationCode() != null && 
+							    ("PRIVEE".equalsIgnoreCase(dto.getTypeConversationCode()) || 
+							     "PRIVATE".equalsIgnoreCase(dto.getTypeConversationCode()))) {
+								
+								Integer messageCreatedBy = lastMessage.getCreatedBy();
+								if (messageCreatedBy != null) {
+									try {
+										log.info("Recherche des noms pour conversationId=" + dto.getId() + ", messageCreatedBy=" + messageCreatedBy);
+										List<Object[]> result = conversationRepository.findSenderAndRecipientNamesForPrivateConversation(
+												dto.getId(),
+												messageCreatedBy
+										);
+
+										log.info("Résultat de la requête: " + (result != null ? result.size() + " résultats" : "null"));
+										if (!result.isEmpty()) {
+											Object[] names = result.get(0);
+											String senderNom = (String) names[0];
+											String senderPrenoms = (String) names[1];
+											String recipientNom = (String) names[2];
+											String recipientPrenoms = (String) names[3];
+											
+											// Construire le nom complet de l'expéditeur
+											String senderFullName = "";
+											if (Utilities.notBlank(senderPrenoms)) {
+												senderFullName = senderPrenoms;
+											}
+											if (Utilities.notBlank(senderNom)) {
+												senderFullName += (Utilities.notBlank(senderFullName) ? " " : "") + senderNom;
+											}
+											
+											// Construire le nom complet du destinataire
+											String recipientFullName = "";
+											if (Utilities.notBlank(recipientPrenoms)) {
+												recipientFullName = recipientPrenoms;
+											}
+											if (Utilities.notBlank(recipientNom)) {
+												recipientFullName += (Utilities.notBlank(recipientFullName) ? " " : "") + recipientNom;
+											}
+
+											dto.setSenderFullName(senderFullName);
+											dto.setRecipientFullName(recipientFullName);
+											log.info("Noms assignés - Expéditeur: " + senderFullName + ", Destinataire: " + recipientFullName);
+										} else {
+											log.warning("Aucun résultat trouvé pour conversationId=" + dto.getId() + ", messageCreatedBy=" + messageCreatedBy);
+										}
+									} catch (Exception e) {
+										log.warning("Erreur lors de la récupération des noms pour la conversation privée id=" + dto.getId() + " : " + e.getMessage());
+										// Ne pas faire échouer la requête si cette récupération échoue
+									}
+								}
+							}
+						}
+					}
+					return dto;
 				} catch (Exception e) {
 					listOfError.add(e.getMessage());
 					e.printStackTrace();
+					return dto; // Retourner le DTO même en cas d'erreur
 				}
-			});
+			}).collect(java.util.stream.Collectors.toList());
+			
 			if (Utilities.isNotEmpty(listOfError)) {
 				Object[] objArray = listOfError.stream().distinct().toArray();
 				throw new RuntimeException(StringUtils.join(objArray, ", "));
@@ -663,6 +744,9 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 			response.setHasError(false);
 			return response;
 		}
+
+
+
 
 		log.info("----end get Conversation-----");
 		return response;
@@ -678,24 +762,24 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 			log.warning("Tentative de validation d'un utilisateur avec ID invalide : " + fieldName + " = " + userId);
 			return null;
 		}
-		
+
 		// Seuls les utilisateurs non supprimés sont retournés
 		User user = userRepository.findOne(userId, false);
-		
+
 		if (user == null) {
 			// L'utilisateur n'existe pas dans la base de données ou a été supprimé
-			String errorMessage = "user " + fieldName + " -> " + userId + 
+			String errorMessage = "user " + fieldName + " -> " + userId +
 					" n'existe pas dans la base de données. L'utilisateur doit être créé avant d'être utilisé.";
 			log.warning(errorMessage);
 			throw new RuntimeException(functionalError.DATA_NOT_EXIST(errorMessage, locale).getMessage());
 		}
-		
+
 		if (user.getIsDeleted() != null && user.getIsDeleted()) {
 			String errorMessage = "user " + fieldName + " -> " + userId + " a été supprimé";
 			log.warning(errorMessage);
 			throw new RuntimeException(functionalError.DATA_NOT_EXIST(errorMessage, locale).getMessage());
 		}
-		
+
 		// L'utilisateur existe et est valide
 		log.fine("Utilisateur validé avec succès : " + fieldName + " = " + userId);
 		return user;
@@ -703,7 +787,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 
 	/**
 	 * get full ConversationDto by using Conversation as object.
-	 * 
+	 *
 	 * @param dto
 	 * @param size
 	 * @param isSimpleLoading
