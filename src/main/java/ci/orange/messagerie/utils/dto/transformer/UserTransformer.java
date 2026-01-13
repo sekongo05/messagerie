@@ -54,6 +54,7 @@ public interface UserTransformer {
 		dto.setId( entity.getId() );
 		dto.setNom( entity.getNom() );
 		dto.setPrenoms( entity.getPrenoms() );
+		dto.setEmail( entity.getEmail() );
 		return dto;
     }
 
@@ -72,6 +73,7 @@ public interface UserTransformer {
 		@Mapping(source="dto.id", target="id"),
 		@Mapping(source="dto.nom", target="nom"),
 		@Mapping(source="dto.prenoms", target="prenoms"),
+		@Mapping(source="dto.email", target="email"),
 		@Mapping(source="dto.createdAt", dateFormat="dd/MM/yyyy",target="createdAt"),
 		@Mapping(source="dto.updatedAt", dateFormat="dd/MM/yyyy",target="updatedAt"),
 		@Mapping(source="dto.deletedAt", dateFormat="dd/MM/yyyy",target="deletedAt"),

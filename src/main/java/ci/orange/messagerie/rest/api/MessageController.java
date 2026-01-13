@@ -40,7 +40,7 @@ Controller for table "message"
  *
  */
 @Log
-@CrossOrigin("*")
+
 @RestController
 @RequestMapping(value="/message")
 public class MessageController {

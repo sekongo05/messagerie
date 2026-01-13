@@ -34,6 +34,7 @@ public class ConversationDto extends _ConversationDto{
     private String    statusLibelle               ;
     private String    typeConversation;
     private Integer   interlocuteurId;
+    private String    interlocuteurName;
     private String    messageContent;
     private String    senderFullName;
     private String    lastMessage;// Nom complet de l'expéditeur du dernier message

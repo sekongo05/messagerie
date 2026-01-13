@@ -32,6 +32,8 @@ import ci.orange.messagerie.utils.dto.base._MessageDto;
 public class MessageDto extends _MessageDto{
 
     private String    statusLibelle               ;
+    private String    senderName                  ;
+    private String    recipientName               ;
     
 	//----------------------------------------------------------------------
     // clone METHOD

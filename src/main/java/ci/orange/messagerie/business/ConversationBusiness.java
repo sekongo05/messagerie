@@ -649,8 +649,52 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 				try {
 					dto = getFullInfos(dto, size, request.getIsSimpleLoading(), locale);
 					
-					// Récupérer le dernier message de la conversation
+					// Récupérer l'interlocuteur (ID et nom) pour les conversations privées
 					if (dto.getId() != null) {
+						// Vérifier si c'est une conversation privée (typeConversationCode = PRIVEE ou PRIVATE)
+						if (dto.getTypeConversationCode() != null && 
+						    ("PRIVEE".equalsIgnoreCase(dto.getTypeConversationCode()) || 
+						     "PRIVATE".equalsIgnoreCase(dto.getTypeConversationCode()))) {
+							
+							// Récupérer l'interlocuteur (ID et nom) pour la conversation privée
+							Integer currentUserId = request.getUser();
+							if (currentUserId != null) {
+								try {
+									List<Object[]> interlocutorResult = conversationRepository.findInterlocutorForPrivateConversation(
+											dto.getId(),
+											currentUserId
+									);
+									
+									if (!interlocutorResult.isEmpty()) {
+										Object[] interlocutorData = interlocutorResult.get(0);
+										Integer interlocutorId = (Integer) interlocutorData[0];
+										String interlocutorNom = (String) interlocutorData[1];
+										String interlocutorPrenoms = (String) interlocutorData[2];
+										
+										// Construire le nom complet de l'interlocuteur
+										String interlocuteurName = "";
+										if (Utilities.notBlank(interlocutorPrenoms)) {
+											interlocuteurName = interlocutorPrenoms;
+										}
+										if (Utilities.notBlank(interlocutorNom)) {
+											interlocuteurName += (Utilities.notBlank(interlocuteurName) ? " " : "") + interlocutorNom;
+										}
+										if (Utilities.isBlank(interlocuteurName)) {
+											interlocuteurName = "Utilisateur " + interlocutorId;
+										}
+										
+										dto.setInterlocuteurId(interlocutorId);
+										dto.setInterlocuteurName(interlocuteurName);
+										log.info("Interlocuteur assigné - ID: " + interlocutorId + ", Nom: " + interlocuteurName);
+									}
+								} catch (Exception e) {
+									log.warning("Erreur lors de la récupération de l'interlocuteur pour la conversation privée id=" + dto.getId() + " : " + e.getMessage());
+									// Ne pas faire échouer la requête si cette récupération échoue
+								}
+							}
+						}
+						
+						// Récupérer le dernier message de la conversation
 						Message lastMessage = conversationRepository.findLastMessageByConversationId(dto.getId());
 						if (lastMessage != null) {
 							dto.setMessageContent(lastMessage.getContent());

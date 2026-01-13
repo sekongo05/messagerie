@@ -218,6 +218,100 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 
 			final int size = itemsSaved.size();
 			List<String>  listOfError      = Collections.synchronizedList(new ArrayList<String>());
+			
+			// Enrichir les DTOs avec les noms de l'expéditeur et du destinataire
+			for (int i = 0; i < itemsDto.size() && i < itemsSaved.size(); i++) {
+				MessageDto dto = itemsDto.get(i);
+				Message message = itemsSaved.get(i);
+				
+				// Récupérer la conversation pour vérifier son type
+				Integer conversationId = dto.getConversationId();
+				Integer senderId = message.getCreatedBy();
+				
+				log.info("Tentative d'enrichissement pour message id=" + message.getId() + 
+						", conversationId=" + conversationId + ", senderId=" + senderId);
+				
+				if (conversationId != null && senderId != null) {
+					try {
+						// Récupérer le type de conversation
+						TypeConversation typeConversation = conversationRepository.findConversationType(conversationId);
+						
+						if (typeConversation != null) {
+							String typeCode = typeConversation.getCode();
+							log.info("Type de conversation trouvé: " + typeCode + " pour conversationId=" + conversationId);
+							
+							boolean isPrivate = typeCode != null && 
+							    ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
+							
+							if (isPrivate) {
+								log.info("Conversation privée détectée, récupération des noms...");
+								List<Object[]> result = messageRepository.findSenderAndRecipientNamesForMessage(
+										conversationId,
+										senderId
+								);
+								
+								log.info("Résultat de la requête: " + (result != null ? result.size() + " résultats" : "null"));
+								
+								if (result != null && !result.isEmpty()) {
+									Object[] names = result.get(0);
+									String senderNom = names[0] != null ? (String) names[0] : null;
+									String senderPrenoms = names[1] != null ? (String) names[1] : null;
+									String recipientNom = names[2] != null ? (String) names[2] : null;
+									String recipientPrenoms = names[3] != null ? (String) names[3] : null;
+									
+									log.info("Données récupérées - senderNom=" + senderNom + ", senderPrenoms=" + senderPrenoms + 
+											", recipientNom=" + recipientNom + ", recipientPrenoms=" + recipientPrenoms);
+									
+									// Construire le nom complet de l'expéditeur
+									String senderName = "";
+									if (Utilities.notBlank(senderPrenoms)) {
+										senderName = senderPrenoms;
+									}
+									if (Utilities.notBlank(senderNom)) {
+										senderName += (Utilities.notBlank(senderName) ? " " : "") + senderNom;
+									}
+									if (Utilities.isBlank(senderName)) {
+										senderName = "Utilisateur " + senderId;
+									}
+									
+									// Construire le nom complet du destinataire
+									String recipientName = "";
+									if (Utilities.notBlank(recipientPrenoms)) {
+										recipientName = recipientPrenoms;
+									}
+									if (Utilities.notBlank(recipientNom)) {
+										recipientName += (Utilities.notBlank(recipientName) ? " " : "") + recipientNom;
+									}
+									if (Utilities.isBlank(recipientName)) {
+										// Si on ne peut pas déterminer le destinataire, laisser vide
+										recipientName = null;
+									}
+									
+									dto.setSenderName(senderName);
+									dto.setRecipientName(recipientName);
+									log.info("Noms assignés avec succès pour message id=" + message.getId() + 
+											" - Expéditeur: " + senderName + ", Destinataire: " + recipientName);
+								} else {
+									log.warning("Aucun résultat trouvé pour conversationId=" + conversationId + 
+											", senderId=" + senderId);
+								}
+							} else {
+								log.info("La conversation n'est pas privée (typeCode=" + typeCode + "), pas d'enrichissement des noms");
+							}
+						} else {
+							log.warning("Type de conversation non trouvé pour conversationId=" + conversationId);
+						}
+					} catch (Exception e) {
+						log.severe("Erreur lors de la récupération des noms pour le message id=" + 
+								message.getId() + " : " + e.getMessage());
+						e.printStackTrace();
+						// Ne pas faire échouer la création si cette récupération échoue
+					}
+				} else {
+					log.warning("conversationId ou senderId est null - conversationId=" + conversationId + ", senderId=" + senderId);
+				}
+			}
+			
 			itemsDto.parallelStream().forEach(dto -> {
 				try {
 					dto = getFullInfos(dto, size, request.getIsSimpleLoading(), locale);

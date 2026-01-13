@@ -64,6 +64,15 @@ public interface _UserRepository {
     @Query("select e from User e where e.prenoms = :prenoms and e.isDeleted = :isDeleted")
     List<User> findByPrenoms(@Param("prenoms")String prenoms, @Param("isDeleted")Boolean isDeleted);
     /**
+     * Finds User by using email as a search criteria.
+     *
+     * @param email
+     * @return An Object User whose email is equals to the given email. If
+     *         no User is found, this method returns null.
+     */
+    @Query("select e from User e where e.email = :email and e.isDeleted = :isDeleted")
+    List<User> findByEmail(@Param("email")String email, @Param("isDeleted")Boolean isDeleted);
+    /**
      * Finds User by using createdAt as a search criteria.
      *
      * @param createdAt
@@ -234,6 +243,9 @@ public interface _UserRepository {
             }
             if (Utilities.isNotBlank(dto.getPrenoms()) || Utilities.searchParamIsNotEmpty(dto.getPrenomsParam())) {
                 listOfQuery.add(CriteriaUtils.generateCriteria("prenoms", dto.getPrenoms(), "e.prenoms", "String", dto.getPrenomsParam(), param, index, locale));
+            }
+            if (Utilities.isNotBlank(dto.getEmail()) || Utilities.searchParamIsNotEmpty(dto.getEmailParam())) {
+                listOfQuery.add(CriteriaUtils.generateCriteria("email", dto.getEmail(), "e.email", "String", dto.getEmailParam(), param, index, locale));
             }
             if (Utilities.isNotBlank(dto.getCreatedAt()) || Utilities.searchParamIsNotEmpty(dto.getCreatedAtParam())) {
                 listOfQuery.add(CriteriaUtils.generateCriteria("createdAt", dto.getCreatedAt(), "e.createdAt", "Date", dto.getCreatedAtParam(), param, index, locale));

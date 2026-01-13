@@ -230,7 +230,7 @@ public class Utilities {
 
 			isValidString = false;
 		} catch (NumberFormatException ex) {
-			// i is not an integer
+			//  is not an integer
 		}
 
 		return isValidString;

@@ -101,4 +101,38 @@ public interface ConversationRepository extends JpaRepository<Conversation, Inte
         @Param("messageCreatedBy") Integer messageCreatedBy
     );
 
+    /**
+     * Récupère l'ID et le nom de l'interlocuteur pour une conversation privée
+     * @param conversationId L'ID de la conversation privée
+     * @param currentUserId L'ID de l'utilisateur actuel
+     * @return Un tableau Object[] contenant :
+     *         [0] = ID de l'interlocuteur (Integer)
+     *         [1] = nom de l'interlocuteur (String)
+     *         [2] = prénoms de l'interlocuteur (String)
+     *         Retourne une liste vide si la conversation n'est pas privée ou si l'interlocuteur n'est pas trouvé
+     */
+    @Query("""
+        SELECT 
+            interlocuteur.id,
+            interlocuteur.nom,
+            interlocuteur.prenoms
+        FROM ParticipantConversation pc1
+        JOIN ParticipantConversation pc2 ON pc2.conversation.id = pc1.conversation.id
+        JOIN User interlocuteur ON (
+            (pc1.user.id = :currentUserId AND interlocuteur.id = pc2.user.id)
+            OR
+            (pc2.user.id = :currentUserId AND interlocuteur.id = pc1.user.id)
+        )
+        WHERE pc1.conversation.id = :conversationId
+          AND pc1.conversation.isDeleted = false
+          AND pc1.isDeleted = false
+          AND pc2.isDeleted = false
+          AND pc1.user.id <> pc2.user.id
+          AND (pc1.user.id = :currentUserId OR pc2.user.id = :currentUserId)
+    """)
+    List<Object[]> findInterlocutorForPrivateConversation(
+        @Param("conversationId") Integer conversationId,
+        @Param("currentUserId") Integer currentUserId
+    );
+
 }

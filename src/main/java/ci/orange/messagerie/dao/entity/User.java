@@ -48,6 +48,9 @@ public class User implements Serializable, Cloneable {
     @Column(name="prenoms", length=100)
     private String     prenoms      ;
 
+    @Column(name="email", length=255)
+    private String     email        ;
+
     @Temporal(TemporalType.TIMESTAMP)
     @Column(name="created_at")
     private Date       createdAt    ;

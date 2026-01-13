@@ -18,6 +18,8 @@ import jakarta.persistence.PersistenceContext;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import ci.orange.messagerie.utils.*;
 import ci.orange.messagerie.utils.dto.*;
@@ -64,6 +66,16 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 		dateFormat = new SimpleDateFormat("dd/MM/yyyy");
 		dateTimeFormat = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
 	}
+
+	// methode pour la verification du pattern de l'email
+
+	private boolean isValidEmail(String email){
+		if(email == null) return false;
+		String regex = "^[a-zA-Z0-9._%+-]+@gmail\\.com$";
+		Pattern pattern = Pattern.compile(regex);
+		Matcher matcher = pattern.matcher(email);
+		return matcher.matches();
+	}
 	
 	/**
 	 * create User by using UserDto as object.
@@ -84,8 +96,19 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
 			fieldsToVerify.put("nom", dto.getNom());
 			fieldsToVerify.put("prenoms", dto.getPrenoms());
+			fieldsToVerify.put("email", dto.getEmail());
 //			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
 //			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
+
+
+			// new function for verify email
+
+
+			if(!isValidEmail(dto.getEmail())){
+				response.setHasError(true);
+				response.setStatus(functionalError.SAVE_FAIL("le format de l'email est incorrect",locale));
+				return response;
+			}
 			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
 				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
 				response.setHasError(true);
@@ -93,7 +116,14 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 			}
 
 			// Verify if user to insert do not exist
-			User existingEntity = null;
+
+
+			List<User> users = userRepository.findByEmail(dto.getEmail(),false);
+			if (!users.isEmpty()){
+				response.setStatus(functionalError.DATA_EXIST("email existant" ,locale) );
+				response.setHasError(true);
+				return response;
+			}
 
 /*
 			if (existingEntity != null) {

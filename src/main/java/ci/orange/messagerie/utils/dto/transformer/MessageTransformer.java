@@ -37,7 +37,7 @@ public interface MessageTransformer {
 
 	@FullTransformerQualifier
 	@Mappings({
-		@Mapping(source="entity.createdAt", dateFormat="dd/MM/yyyy",target="createdAt"),
+		@Mapping(source="entity.createdAt", dateFormat="dd/MM/yyyy HH:mm:ss",target="createdAt"),
 		@Mapping(source="entity.updatedAt", dateFormat="dd/MM/yyyy",target="updatedAt"),
 		@Mapping(source="entity.deletedAt", dateFormat="dd/MM/yyyy",target="deletedAt"),
 		@Mapping(source="entity.conversation.id", target="conversationId"),

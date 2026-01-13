@@ -36,6 +36,7 @@ public class _UserDto implements Cloneable {
 
     protected String     nom                  ;
     protected String     prenoms              ;
+    protected String     email                ;
 	protected String     createdAt            ;
 	protected String     updatedAt            ;
 	protected String     deletedAt            ;
@@ -52,6 +53,7 @@ public class _UserDto implements Cloneable {
 	protected SearchParam<Integer>  idParam               ;                     
 	protected SearchParam<String>   nomParam              ;                     
 	protected SearchParam<String>   prenomsParam          ;                     
+	protected SearchParam<String>   emailParam            ;                     
 	protected SearchParam<String>   createdAtParam        ;                     
 	protected SearchParam<String>   updatedAtParam        ;                     
 	protected SearchParam<String>   deletedAtParam        ;                     
