@@ -99,10 +99,7 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 			fieldsToVerify.put("email", dto.getEmail());
 //			fieldsToVerify.put("deletedAt", dto.getDeletedAt());
 //			fieldsToVerify.put("deletedBy", dto.getDeletedBy());
-
-
 			// new function for verify email
-
 
 			if(!isValidEmail(dto.getEmail())){
 				response.setHasError(true);
@@ -141,7 +138,14 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 //			entityToSave.setStatusId(StatusEnum.ACTIVE);
 			items.add(entityToSave);
 		}
+		/***
+		 *
+		 *
+		 * fin de la boucle for
+		 */
 
+
+		// enregistrement des element dans la bd
 		if (!items.isEmpty()) {
 			List<User> itemsSaved = null;
 			// inserer les donnees en base de donnees
@@ -151,9 +155,14 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 				response.setHasError(true);
 				return response;
 			}
+
+			///  tranformer les element en dto pour pouvoir les envoyé dans la réponse
+
 			List<UserDto> itemsDto = (Utilities.isTrue(request.getIsSimpleLoading())) ? UserTransformer.INSTANCE.toLiteDtos(itemsSaved) : UserTransformer.INSTANCE.toDtos(itemsSaved);
 
 			final int size = itemsSaved.size();
+
+			log.info("le nombre des conversation"+ size);
 			List<String>  listOfError      = Collections.synchronizedList(new ArrayList<String>());
 			itemsDto.parallelStream().forEach(dto -> {
 				try {
@@ -175,9 +184,57 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 		return response;
 	}
 
+	public Response<UserDto> login(Request<UserDto> request, Locale locale) throws Exception {
+		log.info("begin login");
+		Response<UserDto> response = new Response<>();
+		List<UserDto> itemsDto= new ArrayList<>();
+
+		if(request == null || request.getDatas() == null || request.getDatas().isEmpty()){
+			response.setHasError(true);
+			response.setStatus(functionalError.REQUEST_FAIL("requête invalide", locale));
+			return response;
+		}
+
+		UserDto dto =request.getDatas().get(0);
+		Map<String, Object> fieldsToVerify = new HashMap<>();
+		fieldsToVerify.put("email", dto.getEmail());
+		if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
+			response.setHasError(true);
+			response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
+			return response;
+		}
+
+		if(!isValidEmail(dto.getEmail())){
+			response.setStatus(functionalError.SAVE_FAIL("le format de l'email est incorrect", locale));
+			response.setHasError(true);
+			return response;
+		}
+
+		List<User> existingUsers= userRepository.findByEmail(dto.getEmail(), false);
+		if(existingUsers.isEmpty()){
+			response.setHasError(true);
+			response.setStatus(functionalError.DATA_NOT_EXIST("l'utilisateur n'existe pas", locale));
+			return response;
+		}
+
+		User user= existingUsers.get(0);
+
+		UserDto userDto = UserTransformer.INSTANCE.toDto(user);
+
+
+		userDto= getFullInfos(userDto, 1, request.getIsSimpleLoading(),locale);
+		itemsDto.add(userDto);
+
+		response.setItems(itemsDto);
+		response.setHasError(false);
+		response.setStatus(functionalError.SUCCESS("Connexion réussie", locale));
+
+
+		log.info(" end login");
+		return response;
+	}
+
 	/**
-	 * update User by using UserDto as object.
-	 * 
 	 * @param request
 	 * @return response
 	 * 

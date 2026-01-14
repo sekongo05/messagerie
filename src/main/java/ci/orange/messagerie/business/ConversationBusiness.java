@@ -648,7 +648,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 			itemsDto = itemsDto.parallelStream().map(dto -> {
 				try {
 					dto = getFullInfos(dto, size, request.getIsSimpleLoading(), locale);
-					
+
 					// Récupérer l'interlocuteur (ID et nom) pour les conversations privées
 					if (dto.getId() != null) {
 						// Vérifier si c'est une conversation privée (typeConversationCode = PRIVEE ou PRIVATE)
@@ -709,9 +709,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 							}
 							dto.setLastMessage(lastMessageContent);
 							
-							if (lastMessage.getCreatedAt() != null) {
-//								 dto.setLastMessageDate(dateFormat.format(lastMessage.getCreatedAt()));
-							}
+
 							
 							// Récupérer les noms de l'expéditeur et du destinataire pour une conversation privée
 							// Vérifier si c'est une conversation privée (typeConversationCode = PRIVEE ou PRIVATE)

@@ -9,6 +9,7 @@
 
 package ci.orange.messagerie.rest.api;
 
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.java.Log;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -26,6 +27,9 @@ import ci.orange.messagerie.utils.enums.FunctionalityEnum;
 import ci.orange.messagerie.business.*;
 import ci.orange.messagerie.rest.fact.ControllerFactory;
 
+import java.util.Locale;
+
+
 /**
 Controller for table "user"
  * 
@@ -42,6 +46,9 @@ public class UserController {
     private ControllerFactory<UserDto> controllerFactory;
 	@Autowired
 	private UserBusiness userBusiness;
+
+    @Autowired
+    private HttpServletRequest requestBasic;
 
 	@RequestMapping(value="/create",method=RequestMethod.POST,consumes = {"application/json"},produces={"application/json"})
     public Response<UserDto> create(@RequestBody Request<UserDto> request) {
@@ -74,4 +81,21 @@ public class UserController {
 		log.info("end method /user/getByCriteria");
         return response;
     }
+
+        @RequestMapping(value="/login", method =RequestMethod.POST,consumes = {"application/json"},produces={"application/json"})
+        public Response<UserDto> login(@RequestBody Request<UserDto> request) throws Exception {
+            log.info("start method /user/login");
+            String        languageID = (String) requestBasic.getAttribute("CURRENT_LANGUAGE_IDENTIFIER");
+            if (languageID == null) {
+                languageID = "fr"; // langue par défaut
+            }
+            Locale        locale     = new Locale(languageID, "");
+
+            Response<UserDto> response = userBusiness.login(request, locale );
+
+            log.info("end method /use/login");
+            return response;
+
+
+        }
 }

@@ -155,7 +155,7 @@ public class FunctionalError {
 		return status;
 	}
 
-	public Status LOGIN_FAIL(Locale locale) {
+	public Status LOGIN_FAIL(String userIntrouvable, Locale locale) {
 		status.setCode(StatusCode.FUNC_LOGIN_FAIL);
 		status.setMessage(messageSource.getMessage("StatusMessage.FUNC_LOGIN_FAIL", new Object[] {}, locale));
 		return status;
