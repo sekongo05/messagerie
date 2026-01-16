@@ -51,6 +51,7 @@ public class _ParticipantConversationDto implements Cloneable {
     protected Boolean    hasLeft              ;
     protected Boolean    hasDefinitivelyLeft  ;
     protected Boolean    hasCleaned           ;
+    protected Boolean    isAdmin              ;
 
     //----------------------------------------------------------------------
     // ENTITY LINKS FIELD ( RELATIONSHIP )
@@ -77,10 +78,11 @@ public class _ParticipantConversationDto implements Cloneable {
 	protected SearchParam<Integer>  leftByParam           ;                     
 	protected SearchParam<String>   definitivelyLeftAtParam;                     
 	protected SearchParam<Integer>  definitivelyLeftByParam;                     
-	protected SearchParam<Boolean>  hasLeftParam          ;                     
-	protected SearchParam<Boolean>  hasDefinitivelyLeftParam;                     
-	protected SearchParam<Boolean>  hasCleanedParam       ;                     
-	protected SearchParam<Integer>  userParam             ;                     
+	protected SearchParam<Boolean>  hasLeftParam          ;
+	protected SearchParam<Boolean>  hasDefinitivelyLeftParam;
+	protected SearchParam<Boolean>  hasCleanedParam       ;
+	protected SearchParam<Boolean>  isAdminParam          ;
+	protected SearchParam<Integer>  userParam             ;
 	protected SearchParam<String>   userNomParam          ;                     
 	protected SearchParam<String>   userPrenomsParam      ;                     
 	protected SearchParam<Integer>  conversationParam     ;                     

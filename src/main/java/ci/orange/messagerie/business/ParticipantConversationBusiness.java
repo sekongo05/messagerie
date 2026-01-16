@@ -191,6 +191,40 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			}
 			
 
+			// Vérifier si l'utilisateur est déjà participant de la conversation
+			if (existingConversation != null && dto.getUserId() != null) {
+				List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
+				
+				if (existingParticipants != null && !existingParticipants.isEmpty()) {
+					// Vérifier si l'utilisateur à ajouter est déjà un participant
+					boolean userAlreadyParticipant = false;
+					String userEmail = null;
+					if (existingUser != null && existingUser.getEmail() != null) {
+						userEmail = existingUser.getEmail();
+					}
+					
+					for (ParticipantConversation participant : existingParticipants) {
+						if (participant.getUser() != null && participant.getUser().getId() != null 
+								&& participant.getUser().getId().equals(dto.getUserId())) {
+							userAlreadyParticipant = true;
+							if (userEmail == null && participant.getUser().getEmail() != null) {
+								userEmail = participant.getUser().getEmail();
+							}
+							break;
+						}
+					}
+					
+					if (userAlreadyParticipant) {
+						String message = userEmail != null 
+							? "L'utilisateur avec l'email '" + userEmail + "' est déjà participant de cette conversation"
+							: "Cet utilisateur est déjà participant de cette conversation";
+						response.setStatus(functionalError.DATA_EXIST(message, locale));
+						response.setHasError(true);
+						return response;
+					}
+				}
+			}
+			
 			//  Seul le créateur peut ajouter des membres à un groupe
 			// Une conversation privée ne peut avoir que 2 participants maximum
 			if (existingConversation != null && existingConversation.getTypeConversation() != null) {
@@ -214,27 +248,9 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 					List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
 					
 					if (existingParticipants != null && existingParticipants.size() >= 2) {
-						// Vérifier si l'utilisateur à ajouter est déjà un participant
-						boolean userAlreadyParticipant = false;
-						if (dto.getUserId() != null) {
-							for (ParticipantConversation participant : existingParticipants) {
-								if (participant.getUser() != null && participant.getUser().getId() != null 
-										&& participant.getUser().getId().equals(dto.getUserId())) {
-									userAlreadyParticipant = true;
-									break;
-								}
-							}
-						}
-						
-						if (!userAlreadyParticipant) {
-							response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'ajouter un participant : une conversation privée ne peut avoir que 2 participants maximum (le créateur et l'interlocuteur). Cette conversation a déjà " + existingParticipants.size() + " participant(s).", locale));
-							response.setHasError(true);
-							return response;
-						} else {
-							response.setStatus(functionalError.DATA_EXIST("Cet utilisateur est déjà participant de cette conversation privée.", locale));
-							response.setHasError(true);
-							return response;
-						}
+						response.setStatus(functionalError.DATA_NOT_EXIST("Impossible d'ajouter un participant : une conversation privée ne peut avoir que 2 participants maximum (le créateur et l'interlocuteur). Cette conversation a déjà " + existingParticipants.size() + " participant(s).", locale));
+						response.setHasError(true);
+						return response;
 					}
 					
 					log.info("Vérification : Conversation privée id=" + existingConversation.getId() + " a actuellement " + 

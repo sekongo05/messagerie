@@ -227,16 +227,6 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 						return response;
 					}
 					
-					// Pour une conversation privée, au moins un message texte OU image est obligatoire
-					boolean hasTextMessage = Utilities.notBlank(dto.getMessageContent());
-					boolean hasImageMessage = Utilities.notBlank(dto.getMessageImgUrl());
-					
-					if (!hasTextMessage && !hasImageMessage) {
-						response.setStatus(functionalError.FIELD_EMPTY("messageContent ou messageImgUrl (au moins un doit être fourni pour une conversation privée)", locale));
-						response.setHasError(true);
-						return response;
-					}
-					
 					//  Vérifier que l'interlocuteur existe dans la BD
 					interlocuteur = validateUserExists(dto.getInterlocuteurId(), locale, "interlocuteurId");
 					if (interlocuteur == null) {
@@ -283,8 +273,13 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 						ConversationDto dtoExistante = ConversationTransformer.INSTANCE.toDto(conversationExistante);
 						itemsDto.add(dtoExistante);
 						
-						// Envoyer le message dans la conversation existante
-						sendInitialMessage(conversationExistante, dto.getMessageContent(), dto.getMessageImgUrl(), createurId);
+						// Envoyer le message dans la conversation existante (seulement si un message est fourni)
+						boolean hasTextMessage = Utilities.notBlank(dto.getMessageContent());
+						boolean hasImageMessage = Utilities.notBlank(dto.getMessageImgUrl());
+						
+						if (hasTextMessage || hasImageMessage) {
+							sendInitialMessage(conversationExistante, dto.getMessageContent(), dto.getMessageImgUrl(), createurId);
+						}
 						
 						// Passer à la conversation suivante (ne pas créer de nouvelle)
 						continue;
@@ -343,10 +338,13 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 				
 				TypeConversation typeConversation = conversationSaved.getTypeConversation();
 				boolean isPrivate = false;
+				boolean isGroup = false;
 				if (typeConversation != null) {
 					String typeCode = typeConversation.getCode();
 					if (typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode))) {
 						isPrivate = true;
+					} else if (typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode))) {
+						isGroup = true;
 					}
 				}
 				
@@ -378,7 +376,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 						response.setHasError(true);
 						return response;
 					}
-					
+				
 
 					
 					// Vérifier qu'il n'y a pas déjà de participants dans cette conversation (sécurité)
@@ -398,6 +396,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 							participantCreateur.setHasLeft(false);
 							participantCreateur.setHasDefinitivelyLeft(false);
 							participantCreateur.setHasCleaned(false);
+							participantCreateur.setIsAdmin(false); // Pas admin pour les conversations privées
 							
 							// CRÉATION DU PARTICIPANT POUR L'INTERLOCUTEUR
 							// On crée uniquement un participant qui référence cet utilisateur existant.
@@ -411,6 +410,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 							participantInterlocuteur.setHasLeft(false);
 							participantInterlocuteur.setHasDefinitivelyLeft(false);
 							participantInterlocuteur.setHasCleaned(false);
+							participantInterlocuteur.setIsAdmin(false); // Pas admin pour les conversations privées
 							
 							// SAUVEGARDE DES PARTICIPANTS
 							List<ParticipantConversation> participantsToSave = new ArrayList<>();
@@ -430,6 +430,56 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 					
 					if (hasTextMessage || hasImageMessage) {
 						sendInitialMessage(conversationSaved, dtoOriginal.getMessageContent(), dtoOriginal.getMessageImgUrl(), createurId);
+					}
+				} else if (isGroup) {
+					// CRÉATION AUTOMATIQUE DU PARTICIPANT POUR LE CRÉATEUR DU GROUPE
+					
+					// 1. Validation du créateur : Vérifier qu'il existe dans la base de données
+					Integer createurId = conversationSaved.getCreatedBy();
+					User createur = validateUserExists(createurId, locale, "createdBy");
+					if (createur == null) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("user createdBy -> " + createurId + 
+								" n'existe pas dans la base de données. L'utilisateur doit être créé avant d'être utilisé.", locale));
+						response.setHasError(true);
+						return response;
+					}
+					
+					// 2. Vérifier si le créateur n'est pas déjà participant (sécurité)
+					List<ParticipantConversation> existingParticipants = 
+						participantConversationRepository.findByConversationId(conversationSaved.getId(), false);
+					
+					boolean createurAlreadyParticipant = false;
+					if (existingParticipants != null && !existingParticipants.isEmpty()) {
+						for (ParticipantConversation participant : existingParticipants) {
+							if (participant.getUser() != null && participant.getUser().getId() != null 
+									&& participant.getUser().getId().equals(createurId)) {
+								createurAlreadyParticipant = true;
+								break;
+							}
+						}
+					}
+					
+					// 3. Créer le participant pour le créateur s'il n'existe pas déjà
+					if (!createurAlreadyParticipant) {
+						ParticipantConversation participantCreateur = new ParticipantConversation();
+						participantCreateur.setConversation(conversationSaved);
+						participantCreateur.setUser(createur); // Référence vers l'utilisateur EXISTANT
+						participantCreateur.setCreatedAt(Utilities.getCurrentDate());
+						participantCreateur.setCreatedBy(conversationSaved.getCreatedBy());
+						participantCreateur.setIsDeleted(false);
+						participantCreateur.setHasLeft(false);
+						participantCreateur.setHasDefinitivelyLeft(false);
+						participantCreateur.setHasCleaned(false);
+						participantCreateur.setIsAdmin(true); // Le créateur est automatiquement admin du groupe
+						
+						// SAUVEGARDE DU PARTICIPANT
+						participantConversationRepository.save(participantCreateur);
+						
+						log.info("Groupe créé - Le créateur (userId=" + createur.getId() + 
+								") a été automatiquement ajouté comme participant et admin du groupe (conversationId=" + conversationSaved.getId() + ")");
+					} else {
+						log.info("Groupe créé - Le créateur (userId=" + createur.getId() + 
+								") est déjà participant du groupe (conversationId=" + conversationSaved.getId() + ")");
 					}
 				}
 

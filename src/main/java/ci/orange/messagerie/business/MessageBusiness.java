@@ -607,13 +607,44 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 	 * @throws Exception
 	 */
 	private MessageDto getFullInfos(MessageDto dto, Integer size, Boolean isSimpleLoading, Locale locale) throws Exception {
-		// put code here
-
+		// Enrichir le DTO avec le nom de l'expéditeur (senderName)
+		
 		if (Utilities.isTrue(isSimpleLoading)) {
 			return dto;
 		}
-		if (size > 1) {
-			return dto;
+		
+		// Enrichir senderName pour tous les messages
+		Integer createdBy = dto.getCreatedBy();
+		if (createdBy != null && createdBy > 0) {
+			try {
+				// Récupérer l'utilisateur qui a créé le message
+				User sender = userRepository.findOne(createdBy, false);
+				
+				if (sender != null) {
+					// Construire le nom complet de l'expéditeur
+					String senderName = "";
+					if (Utilities.notBlank(sender.getPrenoms())) {
+						senderName = sender.getPrenoms();
+					}
+					if (Utilities.notBlank(sender.getNom())) {
+						senderName += (Utilities.notBlank(senderName) ? " " : "") + sender.getNom();
+					}
+					if (Utilities.isBlank(senderName)) {
+						senderName = "Utilisateur " + createdBy;
+					}
+					
+					dto.setSenderName(senderName);
+					log.fine("Nom de l'expéditeur enrichi pour message id=" + dto.getId() + " : " + senderName);
+				} else {
+					log.warning("Utilisateur non trouvé pour createdBy=" + createdBy + " (message id=" + dto.getId() + ")");
+					dto.setSenderName("Utilisateur " + createdBy);
+				}
+			} catch (Exception e) {
+				log.warning("Erreur lors de la récupération du nom de l'expéditeur pour message id=" + dto.getId() + " : " + e.getMessage());
+				// Ne pas faire échouer la récupération si l'enrichissement échoue
+				// Définir un nom par défaut
+				dto.setSenderName("Utilisateur " + createdBy);
+			}
 		}
 
 		return dto;

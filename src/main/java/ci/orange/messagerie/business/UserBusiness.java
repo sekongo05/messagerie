@@ -112,12 +112,10 @@ public class UserBusiness implements IBasicBusiness<Request<UserDto>, Response<U
 				return response;
 			}
 
-			// Verify if user to insert do not exist
-
-
-			List<User> users = userRepository.findByEmail(dto.getEmail(),false);
+			// Verify if user to insert do not exist - Vérifier si l'email existe déjà
+			List<User> users = userRepository.findByEmail(dto.getEmail(), false);
 			if (!users.isEmpty()){
-				response.setStatus(functionalError.DATA_EXIST("email existant" ,locale) );
+				response.setStatus(functionalError.DATA_EXIST("Un utilisateur avec l'email '" + dto.getEmail() + "' existe déjà", locale));
 				response.setHasError(true);
 				return response;
 			}

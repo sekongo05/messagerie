@@ -31,6 +31,7 @@ import ci.orange.messagerie.service.FileUploadService;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Locale;
 
 /**
@@ -41,6 +42,7 @@ Controller for table "message"
  */
 @Log
 
+@CrossOrigin("*")
 @RestController
 @RequestMapping(value="/message")
 public class MessageController {
@@ -144,6 +146,7 @@ public class MessageController {
 			// Créer la requête
 			Request<MessageDto> request = new Request<MessageDto>();
 			request.setUser(user);
+			request.setDatas(new ArrayList<MessageDto>());
 			request.getDatas().add(messageDto);
 			
 			// Utiliser le business existant pour créer le message
@@ -210,51 +213,52 @@ public class MessageController {
         return response;
     }
 
-	@RequestMapping(value = "/upload", method = RequestMethod.POST, consumes = {"multipart/form-data"}, produces = {"application/json"})
-	public Response<MessageDto> uploadMessageWithImage(
-			@RequestParam("file") MultipartFile file,
-			@RequestParam(value = "conversationId", required = true) Integer conversationId,
-			@RequestParam(value = "content", required = false) String content,
-			@RequestParam(value = "typeMessage", required = false) Integer typeMessage,
-			@RequestParam(value = "user", required = false) Integer user) {
-		
-		log.info("start method /message/upload - conversationId: " + conversationId);
-		
-		Response<MessageDto> response = new Response<MessageDto>();
-		String languageID = (String) requestBasic.getAttribute("CURRENT_LANGUAGE_IDENTIFIER");
-		Locale locale = new Locale(languageID != null ? languageID : "fr", "");
-		
-		try {
-			// Sauvegarder le fichier
-			String imageUrl = fileUploadService.saveImageFile(file);
-			
-			// Créer le DTO du message
-			MessageDto messageDto = new MessageDto();
-			messageDto.setConversationId(conversationId);
-			messageDto.setImgUrl(imageUrl);
-			messageDto.setContent(content); // Peut être null si seulement image
-			messageDto.setTypeMessage(typeMessage);
-			
-			// Créer la requête
-			Request<MessageDto> request = new Request<MessageDto>();
-			request.setUser(user);
-			request.getDatas().add(messageDto);
-			
-			// Utiliser le business existant pour créer le message
-			response = controllerFactory.create(messageBusiness, request, FunctionalityEnum.CREATE_MESSAGE);
-			
-			log.info("end method /message/upload - success");
-			
-		} catch (IllegalArgumentException e) {
-			log.severe("Erreur de validation lors de l'upload: " + e.getMessage());
-			response.setHasError(true);
-			response.setStatus(functionalError.FILE_UPLOAD_ERROR(e.getMessage(), locale));
-		} catch (Exception e) {
-			log.severe("Erreur lors de l'upload: " + e.getMessage());
-			response.setHasError(true);
-			response.setStatus(functionalError.FILE_UPLOAD_ERROR(e.getMessage(), locale));
+		@RequestMapping(value = "/upload", method = RequestMethod.POST, consumes = {"multipart/form-data"}, produces = {"application/json"})
+		public Response<MessageDto> uploadMessageWithImage(
+				@RequestParam("file") MultipartFile file,
+				@RequestParam(value = "conversationId", required = true) Integer conversationId,
+				@RequestParam(value = "content", required = false) String content,
+				@RequestParam(value = "typeMessage", required = false) Integer typeMessage,
+				@RequestParam(value = "user", required = false) Integer user) {
+
+			log.info("start method /message/upload - conversationId: " + conversationId);
+
+			Response<MessageDto> response = new Response<MessageDto>();
+			String languageID = (String) requestBasic.getAttribute("CURRENT_LANGUAGE_IDENTIFIER");
+			Locale locale = new Locale(languageID != null ? languageID : "fr", "");
+
+			try {
+				// Sauvegarder le fichier
+				String imageUrl = fileUploadService.saveImageFile(file);
+
+				// Créer le DTO du message
+				MessageDto messageDto = new MessageDto();
+				messageDto.setConversationId(conversationId);
+				messageDto.setImgUrl(imageUrl);
+				messageDto.setContent(content); // Peut être null si seulement image
+				messageDto.setTypeMessage(typeMessage);
+
+				// Créer la requête
+				Request<MessageDto> request = new Request<MessageDto>();
+				request.setUser(user);
+				request.setDatas(new ArrayList<MessageDto>());
+				request.getDatas().add(messageDto);
+
+				// Utiliser le business existant pour créer le message
+				response = controllerFactory.create(messageBusiness, request, FunctionalityEnum.CREATE_MESSAGE);
+
+				log.info("end method /message/upload - success");
+
+			} catch (IllegalArgumentException e) {
+				log.severe("Erreur de validation lors de l'upload: " + e.getMessage());
+				response.setHasError(true);
+				response.setStatus(functionalError.FILE_UPLOAD_ERROR(e.getMessage(), locale));
+			} catch (Exception e) {
+				log.severe("Erreur lors de l'upload: " + e.getMessage());
+				response.setHasError(true);
+				response.setStatus(functionalError.FILE_UPLOAD_ERROR(e.getMessage(), locale));
+			}
+
+			return response;
 		}
-		
-		return response;
-	}
 }

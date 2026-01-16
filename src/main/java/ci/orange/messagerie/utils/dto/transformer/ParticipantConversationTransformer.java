@@ -47,6 +47,7 @@ public interface ParticipantConversationTransformer {
 		@Mapping(source="entity.user.nom", target="userNom"),
 		@Mapping(source="entity.user.prenoms", target="userPrenoms"),
 		@Mapping(source="entity.conversation.id", target="conversationId"),
+		@Mapping(source="entity.isAdmin", target="isAdmin"),
 	})
 	ParticipantConversationDto toDto(ParticipantConversation entity) throws ParseException;
 
@@ -91,6 +92,7 @@ public interface ParticipantConversationTransformer {
 		@Mapping(source="dto.hasLeft", target="hasLeft"),
 		@Mapping(source="dto.hasDefinitivelyLeft", target="hasDefinitivelyLeft"),
 		@Mapping(source="dto.hasCleaned", target="hasCleaned"),
+		@Mapping(source="dto.isAdmin", target="isAdmin"),
 		@Mapping(source="user", target="user"),
 		@Mapping(source="conversation", target="conversation"),
 	})
