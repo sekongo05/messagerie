@@ -21,6 +21,7 @@ import lombok.*;
  *
  */
 @Data
+@EqualsAndHashCode(callSuper=false)
 @ToString
 @NoArgsConstructor
 @XmlRootElement

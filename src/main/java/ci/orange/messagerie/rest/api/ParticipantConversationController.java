@@ -17,6 +17,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.Locale;
+
 import ci.orange.messagerie.utils.*;
 import ci.orange.messagerie.utils.dto.*;
 import ci.orange.messagerie.utils.contract.*;
@@ -42,6 +45,8 @@ public class ParticipantConversationController {
     private ControllerFactory<ParticipantConversationDto> controllerFactory;
 	@Autowired
 	private ParticipantConversationBusiness participantConversationBusiness;
+	@Autowired
+	private HttpServletRequest requestBasic;
 
 	@RequestMapping(value="/create",method=RequestMethod.POST,consumes = {"application/json"},produces={"application/json"})
     public Response<ParticipantConversationDto> create(@RequestBody Request<ParticipantConversationDto> request) {
@@ -64,6 +69,19 @@ public class ParticipantConversationController {
     	log.info("start method /participantConversation/delete");
         Response<ParticipantConversationDto> response = controllerFactory.delete(participantConversationBusiness, request, FunctionalityEnum.DELETE_PARTICIPANT_CONVERSATION);
 		log.info("end method /participantConversation/delete");
+        return response;
+    }
+
+	@RequestMapping(value="/promoteAdmin",method=RequestMethod.POST,consumes = {"application/json"},produces={"application/json"})
+    public Response<ParticipantConversationDto> promoteAdmin(@RequestBody Request<ParticipantConversationDto> request) throws Exception {
+    	log.info("start method /participantConversation/promoteAdmin");
+        String languageID = (String) requestBasic.getAttribute("CURRENT_LANGUAGE_IDENTIFIER");
+        if (languageID == null) {
+            languageID = "fr";
+        }
+        Locale locale = new Locale(languageID, "");
+        Response<ParticipantConversationDto> response = participantConversationBusiness.promoteAdmin(request, locale);
+		log.info("end method /participantConversation/promoteAdmin");
         return response;
     }
 

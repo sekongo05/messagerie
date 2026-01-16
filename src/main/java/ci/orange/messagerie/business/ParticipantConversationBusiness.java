@@ -486,7 +486,8 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 		for (ParticipantConversationDto dto : request.getDatas()) {
 			// Definir les parametres obligatoires
 			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
-			fieldsToVerify.put("id", dto.getId());
+			fieldsToVerify.put("conversationId", dto.getConversationId());
+			fieldsToVerify.put("userId", dto.getUserId());
 			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
 				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
 				response.setHasError(true);
@@ -495,35 +496,63 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 
 			// Verifier si la participantConversation existe
 			ParticipantConversation existingEntity = null;
-
-			existingEntity = participantConversationRepository.findOne(dto.getId(), false);
+			
+			// Si l'id est fourni, chercher par id, sinon chercher par conversationId et userId
+			if (dto.getId() != null && dto.getId() > 0) {
+				existingEntity = participantConversationRepository.findOne(dto.getId(), false);
+			} else {
+				// Chercher le participant par conversationId et userId
+				List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(dto.getConversationId(), false);
+				if (participants != null && !participants.isEmpty()) {
+					for (ParticipantConversation participant : participants) {
+						if (participant.getUser() != null && participant.getUser().getId() != null 
+								&& participant.getUser().getId().equals(dto.getUserId())) {
+							existingEntity = participant;
+							break;
+						}
+					}
+				}
+			}
+			
 			if (existingEntity == null) {
-				response.setStatus(functionalError.DATA_NOT_EXIST("participantConversation -> " + dto.getId(), locale));
+				String errorMsg = dto.getId() != null && dto.getId() > 0 
+					? "participantConversation -> " + dto.getId()
+					: "participantConversation avec conversationId -> " + dto.getConversationId() + " et userId -> " + dto.getUserId();
+				response.setStatus(functionalError.DATA_NOT_EXIST(errorMsg, locale));
 				response.setHasError(true);
 				return response;
 			}
 			
 
-			// Seul le créateur peut supprimer des membres d'un groupe
-
+			// Vérifier les permissions de suppression
 			Conversation conversation = existingEntity.getConversation();
 			if (conversation != null && conversation.getTypeConversation() != null) {
+				Integer currentUserId = request.getUser();
+				Integer participantUserId = dto.getUserId();
+				Integer createurId = conversation.getCreatedBy();
 				String typeCode = conversation.getTypeConversation().getCode();
 				boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
 				
-				if (isGroup) {
-					// Pour un groupe, seul le créateur peut supprimer des membres
-					Integer createurId = conversation.getCreatedBy();
-					Integer currentUserId = request.getUser();
-					
-					if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
-						response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut supprimer des membres. Vous n'êtes pas autorisé à supprimer des membres de ce groupe.", locale));
-						response.setHasError(true);
-						return response;
-					}
-					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + conversation.getId() + ") est autorisé à supprimer des membres.");
+				// Autoriser l'auto-suppression (peu importe le type de conversation)
+				boolean isSelfDeletion = currentUserId != null && participantUserId != null && currentUserId.equals(participantUserId);
+				
+				// Pour les groupes, le créateur peut aussi supprimer d'autres participants
+				boolean isCreatorDeleting = isGroup && createurId != null && currentUserId != null && createurId.equals(currentUserId);
+				
+				if (!isSelfDeletion && !isCreatorDeleting) {
+					String errorMsg = isGroup 
+						? "Seul le créateur du groupe peut supprimer des membres, ou vous devez être le participant vous-même." 
+						: "Vous ne pouvez supprimer que vous-même de cette conversation.";
+					response.setStatus(functionalError.DATA_NOT_EXIST(errorMsg, locale));
+					response.setHasError(true);
+					return response;
 				}
-				// Pour les conversations privées, les participants peuvent se retirer eux-mêmes
+				
+				if (isSelfDeletion) {
+					log.info("Auto-suppression : L'utilisateur " + currentUserId + " se retire de la conversation " + conversation.getId());
+				} else if (isCreatorDeleting) {
+					log.info("Suppression par créateur : L'utilisateur " + currentUserId + " (créateur du groupe " + conversation.getId() + ") supprime le participant " + participantUserId);
+				}
 			}
 
 
@@ -543,6 +572,128 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 		}
 
 		log.info("----end delete ParticipantConversation-----");
+		return response;
+	}
+
+	/**
+	 * Promouvoir ou rétrograder un participant en admin
+	 * Seuls les admins existants peuvent effectuer cette action
+	 * 
+	 * @param request
+	 * @return response
+	 * 
+	 */
+	public Response<ParticipantConversationDto> promoteAdmin(Request<ParticipantConversationDto> request, Locale locale) throws ParseException {
+		log.info("----begin promoteAdmin ParticipantConversation-----");
+
+		Response<ParticipantConversationDto> response = new Response<ParticipantConversationDto>();
+		List<ParticipantConversation> items = new ArrayList<ParticipantConversation>();
+		
+		for (ParticipantConversationDto dto : request.getDatas()) {
+			// Vérifier les paramètres obligatoires
+			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
+			fieldsToVerify.put("conversationId", dto.getConversationId());
+			fieldsToVerify.put("userId", dto.getUserId());
+			if (dto.getIsAdmin() == null) {
+				response.setStatus(functionalError.FIELD_EMPTY("isAdmin", locale));
+				response.setHasError(true);
+				return response;
+			}
+			
+			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
+				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
+				response.setHasError(true);
+				return response;
+			}
+
+			// Vérifier si la conversation existe
+			Conversation conversation = conversationRepository.findOne(dto.getConversationId(), false);
+			if (conversation == null) {
+				response.setStatus(functionalError.DATA_NOT_EXIST("conversation conversationId -> " + dto.getConversationId(), locale));
+				response.setHasError(true);
+				return response;
+			}
+
+			// Vérifier si l'utilisateur à promouvoir/rétrograder existe
+			User userToPromote = userRepository.findOne(dto.getUserId(), false);
+			if (userToPromote == null) {
+				response.setStatus(functionalError.DATA_NOT_EXIST("user userId -> " + dto.getUserId(), locale));
+				response.setHasError(true);
+				return response;
+			}
+
+			// Vérifier que l'utilisateur qui fait la requête est admin de la conversation
+			Integer currentUserId = request.getUser();
+			List<ParticipantConversation> allParticipants = participantConversationRepository.findByConversationId(dto.getConversationId(), false);
+			boolean currentUserIsAdmin = false;
+			for (ParticipantConversation participant : allParticipants) {
+				if (participant.getUser() != null && participant.getUser().getId() != null 
+						&& participant.getUser().getId().equals(currentUserId)) {
+					if (Boolean.TRUE.equals(participant.getIsAdmin())) {
+						currentUserIsAdmin = true;
+					}
+					break;
+				}
+			}
+
+			if (!currentUserIsAdmin) {
+				response.setStatus(functionalError.DATA_NOT_EXIST("Seuls les admins de la conversation peuvent promouvoir ou rétrograder un participant.", locale));
+				response.setHasError(true);
+				return response;
+			}
+
+			// Chercher le participant à modifier
+			ParticipantConversation participantToModify = null;
+			for (ParticipantConversation participant : allParticipants) {
+				if (participant.getUser() != null && participant.getUser().getId() != null 
+						&& participant.getUser().getId().equals(dto.getUserId())) {
+					participantToModify = participant;
+					break;
+				}
+			}
+
+			if (participantToModify == null) {
+				response.setStatus(functionalError.DATA_NOT_EXIST("Le participant avec userId -> " + dto.getUserId() + " n'existe pas dans cette conversation.", locale));
+				response.setHasError(true);
+				return response;
+			}
+
+			// Mettre à jour le statut admin
+			participantToModify.setIsAdmin(dto.getIsAdmin());
+			participantToModify.setUpdatedAt(Utilities.getCurrentDate());
+			participantToModify.setUpdatedBy(currentUserId);
+			items.add(participantToModify);
+		}
+
+		if (!items.isEmpty()) {
+			// Mettre à jour les données en base
+			List<ParticipantConversation> itemsSaved = participantConversationRepository.saveAll((Iterable<ParticipantConversation>) items);
+			if (itemsSaved == null) {
+				response.setStatus(functionalError.SAVE_FAIL("participantConversation", locale));
+				response.setHasError(true);
+				return response;
+			}
+			List<ParticipantConversationDto> itemsDto = (Utilities.isTrue(request.getIsSimpleLoading())) ? ParticipantConversationTransformer.INSTANCE.toLiteDtos(itemsSaved) : ParticipantConversationTransformer.INSTANCE.toDtos(itemsSaved);
+
+			final int size = itemsSaved.size();
+			List<String> listOfError = Collections.synchronizedList(new ArrayList<String>());
+			itemsDto.parallelStream().forEach(dto -> {
+				try {
+					dto = getFullInfos(dto, size, request.getIsSimpleLoading(), locale);
+				} catch (Exception e) {
+					listOfError.add(e.getMessage());
+					e.printStackTrace();
+				}
+			});
+			if (Utilities.isNotEmpty(listOfError)) {
+				Object[] objArray = listOfError.stream().distinct().toArray();
+				throw new RuntimeException(StringUtils.join(objArray, ", "));
+			}
+			response.setItems(itemsDto);
+			response.setHasError(false);
+		}
+
+		log.info("----end promoteAdmin ParticipantConversation-----");
 		return response;
 	}
 

@@ -26,6 +26,7 @@ import ci.orange.messagerie.utils.dto.base._ConversationDto;
  * @author Geo
  */
 @Data
+@EqualsAndHashCode(callSuper=false)
 @ToString
 @JsonInclude(Include.NON_NULL)
 @JsonPropertyOrder(alphabetic = true)
