@@ -233,16 +233,16 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 				boolean isPrivate = typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode));
 				
 				if (isGroup) {
-					// Pour un groupe, seul le créateur peut ajouter des membres
-					Integer createurId = existingConversation.getCreatedBy();
+					// Pour un groupe, seul le créateur ou un admin peut ajouter des membres
 					Integer currentUserId = request.getUser();
+					boolean isAuthorized = isCreatorOrAdmin(existingConversation, currentUserId);
 					
-					if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
-						response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut ajouter des membres. Vous n'êtes pas autorisé à ajouter des membres à ce groupe.", locale));
+					if (!isAuthorized) {
+						response.setStatus(functionalError.DATA_NOT_EXIST("Seuls le créateur du groupe ou un admin peuvent ajouter des membres. Vous n'êtes pas autorisé à ajouter des membres à ce groupe.", locale));
 						response.setHasError(true);
 						return response;
 					}
-					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + existingConversation.getId() + ") est autorisé à ajouter des membres.");
+					log.info("Vérification des permissions : L'utilisateur " + currentUserId + " est autorisé à ajouter des membres au groupe " + existingConversation.getId() + ".");
 				} else if (isPrivate) {
 					// Pour une conversation privée, vérifier qu'elle n'a pas déjà 2 participants
 					List<ParticipantConversation> existingParticipants = participantConversationRepository.findByConversationId(existingConversation.getId(), false);
@@ -352,22 +352,22 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 					return response;
 				}
 				
-				//  Seul le créateur peut modifier des participants dans un groupe
+				//  Seul le créateur ou un admin peut modifier des participants dans un groupe
 
 				if (existingConversation.getTypeConversation() != null) {
 					String typeCode = existingConversation.getTypeConversation().getCode();
 					boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
 					
 					if (isGroup) {
-						Integer createurId = existingConversation.getCreatedBy();
 						Integer currentUserId = request.getUser();
+						boolean isAuthorized = isCreatorOrAdmin(existingConversation, currentUserId);
 						
-						if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
-							response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut modifier les membres. Vous n'êtes pas autorisé à modifier des participants de ce groupe.", locale));
+						if (!isAuthorized) {
+							response.setStatus(functionalError.DATA_NOT_EXIST("Seuls le créateur du groupe ou un admin peuvent modifier les membres. Vous n'êtes pas autorisé à modifier des participants de ce groupe.", locale));
 							response.setHasError(true);
 							return response;
 						}
-						log.info("Vérification des permissions : L'utilisateur " + currentUserId + " (créateur du groupe " + existingConversation.getId() + ") est autorisé à modifier des participants.");
+						log.info("Vérification des permissions : L'utilisateur " + currentUserId + " est autorisé à modifier des participants du groupe " + existingConversation.getId() + ".");
 					}
 				}
 				
@@ -380,12 +380,12 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 					boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
 					
 					if (isGroup) {
-						// Pour un groupe, seul le créateur peut modifier les participants
-						Integer createurId = currentConversation.getCreatedBy();
+						// Pour un groupe, seul le créateur ou un admin peut modifier les participants
 						Integer currentUserId = request.getUser();
+						boolean isAuthorized = isCreatorOrAdmin(currentConversation, currentUserId);
 						
-						if (createurId == null || currentUserId == null || !createurId.equals(currentUserId)) {
-							response.setStatus(functionalError.DATA_NOT_EXIST("Seul le créateur du groupe peut modifier les membres. Vous n'êtes pas autorisé à modifier des participants de ce groupe.", locale));
+						if (!isAuthorized) {
+							response.setStatus(functionalError.DATA_NOT_EXIST("Seuls le créateur du groupe ou un admin peuvent modifier les membres. Vous n'êtes pas autorisé à modifier des participants de ce groupe.", locale));
 							response.setHasError(true);
 							return response;
 						}
@@ -484,23 +484,23 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 		List<ParticipantConversation>        items    = new ArrayList<ParticipantConversation>();
 			
 		for (ParticipantConversationDto dto : request.getDatas()) {
-			// Definir les parametres obligatoires
-			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
-			fieldsToVerify.put("conversationId", dto.getConversationId());
-			fieldsToVerify.put("userId", dto.getUserId());
-			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
-				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
-				response.setHasError(true);
-				return response;
-			}
-
 			// Verifier si la participantConversation existe
 			ParticipantConversation existingEntity = null;
 			
-			// Si l'id est fourni, chercher par id, sinon chercher par conversationId et userId
+			// Si l'id est fourni, chercher par id
 			if (dto.getId() != null && dto.getId() > 0) {
 				existingEntity = participantConversationRepository.findOne(dto.getId(), false);
 			} else {
+				// Sinon, vérifier que conversationId et userId sont fournis
+				Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
+				fieldsToVerify.put("conversationId", dto.getConversationId());
+				fieldsToVerify.put("userId", dto.getUserId());
+				if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
+					response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField() + " (ou fournissez 'id' pour utiliser participantId)", locale));
+					response.setHasError(true);
+					return response;
+				}
+				
 				// Chercher le participant par conversationId et userId
 				List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(dto.getConversationId(), false);
 				if (participants != null && !participants.isEmpty()) {
@@ -515,9 +515,14 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			}
 			
 			if (existingEntity == null) {
-				String errorMsg = dto.getId() != null && dto.getId() > 0 
-					? "participantConversation -> " + dto.getId()
-					: "participantConversation avec conversationId -> " + dto.getConversationId() + " et userId -> " + dto.getUserId();
+				String errorMsg;
+				if (dto.getId() != null && dto.getId() > 0) {
+					errorMsg = "participantConversation avec id -> " + dto.getId();
+				} else if (dto.getConversationId() != null && dto.getUserId() != null) {
+					errorMsg = "participantConversation avec conversationId -> " + dto.getConversationId() + " et userId -> " + dto.getUserId();
+				} else {
+					errorMsg = "participantConversation (fournissez soit 'id', soit 'conversationId' + 'userId')";
+				}
 				response.setStatus(functionalError.DATA_NOT_EXIST(errorMsg, locale));
 				response.setHasError(true);
 				return response;
@@ -528,20 +533,22 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			Conversation conversation = existingEntity.getConversation();
 			if (conversation != null && conversation.getTypeConversation() != null) {
 				Integer currentUserId = request.getUser();
-				Integer participantUserId = dto.getUserId();
-				Integer createurId = conversation.getCreatedBy();
+				// Récupérer userId depuis l'entité trouvée (pour supporter les deux formats : id seul ou conversationId+userId)
+				Integer participantUserId = (existingEntity.getUser() != null && existingEntity.getUser().getId() != null) 
+						? existingEntity.getUser().getId() 
+						: dto.getUserId();
 				String typeCode = conversation.getTypeConversation().getCode();
 				boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
 				
 				// Autoriser l'auto-suppression (peu importe le type de conversation)
 				boolean isSelfDeletion = currentUserId != null && participantUserId != null && currentUserId.equals(participantUserId);
 				
-				// Pour les groupes, le créateur peut aussi supprimer d'autres participants
-				boolean isCreatorDeleting = isGroup && createurId != null && currentUserId != null && createurId.equals(currentUserId);
+				// Pour les groupes, le créateur ou un admin peut aussi supprimer d'autres participants
+				boolean isCreatorOrAdminDeleting = isGroup && isCreatorOrAdmin(conversation, currentUserId);
 				
-				if (!isSelfDeletion && !isCreatorDeleting) {
+				if (!isSelfDeletion && !isCreatorOrAdminDeleting) {
 					String errorMsg = isGroup 
-						? "Seul le créateur du groupe peut supprimer des membres"
+						? "Seuls le créateur du groupe ou un admin peuvent supprimer des membres"
 						: "Vous ne pouvez supprimer que vous-même de cette conversation.";
 					response.setStatus(functionalError.DATA_NOT_EXIST(errorMsg, locale));
 					response.setHasError(true);
@@ -550,8 +557,8 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 				
 				if (isSelfDeletion) {
 					log.info("Auto-suppression : L'utilisateur " + currentUserId + " se retire de la conversation " + conversation.getId());
-				} else if (isCreatorDeleting) {
-					log.info("Suppression par créateur : L'utilisateur " + currentUserId + " (créateur du groupe " + conversation.getId() + ") supprime le participant " + participantUserId);
+				} else if (isCreatorOrAdminDeleting) {
+					log.info("Suppression par créateur/admin : L'utilisateur " + currentUserId + " (créateur ou admin du groupe " + conversation.getId() + ") supprime le participant " + participantUserId);
 				}
 				
 				// Vérifier si le participant qui        part est admin et promouvoir automatiquement un autre admin si nécessaire
@@ -790,6 +797,41 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 
 		log.info("----end get ParticipantConversation-----");
 		return response;
+	}
+
+	/**
+	 * Vérifie si un utilisateur est le créateur du groupe ou un admin
+	 * 
+	 * @param conversation La conversation (groupe)
+	 * @param userId L'ID de l'utilisateur à vérifier
+	 * @return true si l'utilisateur est le créateur ou un admin, false sinon
+	 */
+	private boolean isCreatorOrAdmin(Conversation conversation, Integer userId) {
+		if (conversation == null || userId == null) {
+			return false;
+		}
+		
+		// Vérifier si l'utilisateur est le créateur
+		Integer createurId = conversation.getCreatedBy();
+		if (createurId != null && createurId.equals(userId)) {
+			return true;
+		}
+		
+		// Vérifier si l'utilisateur est admin
+		List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(conversation.getId(), false);
+		if (participants != null && !participants.isEmpty()) {
+			for (ParticipantConversation participant : participants) {
+				if (participant.getUser() != null && participant.getUser().getId() != null 
+						&& participant.getUser().getId().equals(userId)) {
+					if (Boolean.TRUE.equals(participant.getIsAdmin())) {
+						return true;
+					}
+					break;
+				}
+			}
+		}
+		
+		return false;
 	}
 
 	/**
