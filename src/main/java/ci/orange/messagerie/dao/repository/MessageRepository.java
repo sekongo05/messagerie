@@ -87,4 +87,43 @@ public interface MessageRepository extends JpaRepository<Message, Integer>, _Mes
         @Param("senderId") Integer senderId
     );
 
+    public default List<Message> getByCriteriaCustomise(Request<MessageDto> request, EntityManager em, Locale locale) throws DataAccessException, Exception {
+        String req = "select e from Message e where e IS NOT NULL";
+        HashMap<String, Object> param = new HashMap<String, Object>();
+        String whereExpression = getWhereExpression(request, param, locale);
+        
+        // Extraire la clause ORDER BY de whereExpression si elle existe
+        String orderByClause = "";
+        String whereClause = whereExpression;
+        int orderByIndex = whereExpression.toLowerCase().indexOf(" order by ");
+        if (orderByIndex >= 0) {
+            orderByClause = whereExpression.substring(orderByIndex);
+            whereClause = whereExpression.substring(0, orderByIndex);
+        }
+        
+        // Construire la requête avec la condition d'exclusion de l'historique
+        req += whereClause;
+        
+        // Exclure les messages qui sont dans l'historique de suppression pour l'utilisateur courant
+        Integer userId = request.getUser();
+        if (userId != null && userId > 0) {
+            req += " AND NOT EXISTS (SELECT 1 FROM HistoriqueSuppressionMessage h WHERE h.message.id = e.id AND h.user.id = :historiqueUserId AND (h.isDeleted = false OR h.isDeleted IS NULL))";
+            param.put("historiqueUserId", userId);
+        }
+        
+        // Ré-ajouter la clause ORDER BY à la fin
+        req += orderByClause;
+        
+        TypedQuery<Message> query = em.createQuery(req, Message.class);
+        for (Map.Entry<String, Object> entry : param.entrySet()) {
+            query.setParameter(entry.getKey(), entry.getValue());
+        }
+        if (request.getIndex() != null && request.getSize() != null) {
+            query.setFirstResult(request.getIndex() * request.getSize());
+            query.setMaxResults(request.getSize());
+        }
+        return query.getResultList();
+    }
+
+
 }

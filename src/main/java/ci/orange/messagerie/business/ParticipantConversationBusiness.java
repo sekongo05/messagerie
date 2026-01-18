@@ -541,7 +541,7 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 				
 				if (!isSelfDeletion && !isCreatorDeleting) {
 					String errorMsg = isGroup 
-						? "Seul le créateur du groupe peut supprimer des membres, ou vous devez être le participant vous-même." 
+						? "Seul le créateur du groupe peut supprimer des membres"
 						: "Vous ne pouvez supprimer que vous-même de cette conversation.";
 					response.setStatus(functionalError.DATA_NOT_EXIST(errorMsg, locale));
 					response.setHasError(true);
@@ -553,10 +553,61 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 				} else if (isCreatorDeleting) {
 					log.info("Suppression par créateur : L'utilisateur " + currentUserId + " (créateur du groupe " + conversation.getId() + ") supprime le participant " + participantUserId);
 				}
+				
+				// Vérifier si le participant qui        part est admin et promouvoir automatiquement un autre admin si nécessaire
+				if (isGroup && Boolean.TRUE.equals(existingEntity.getIsAdmin())) {
+					// Récupérer tous les participants de la conversation
+					List<ParticipantConversation> allParticipants = participantConversationRepository.findByConversationId(conversation.getId(), false);
+					
+					if (allParticipants != null && !allParticipants.isEmpty()) {
+						// Compter les admins restants (en excluant celui qui part)
+						int adminCount = 0;
+						for (ParticipantConversation participant : allParticipants) {
+							if (!participant.getId().equals(existingEntity.getId()) 
+									&& Boolean.TRUE.equals(participant.getIsAdmin())) {
+								adminCount++;
+							}
+						}
+						
+						// S'il n'y a plus d'admin, promouvoir automatiquement le participant le plus ancien
+						if (adminCount == 0) {
+							ParticipantConversation oldestParticipant = null;
+							Date oldestDate = null;
+							
+							for (ParticipantConversation participant : allParticipants) {
+								// Exclure celui qui part
+								if (participant.getId().equals(existingEntity.getId())) {
+									continue;
+								}
+								
+								// Trouver le participant avec le plus ancien createdAt
+								if (participant.getCreatedAt() != null) {
+									if (oldestDate == null || participant.getCreatedAt().before(oldestDate)) {
+										oldestDate = participant.getCreatedAt();
+										oldestParticipant = participant;
+									}
+								}
+							}
+							
+							if (oldestParticipant != null) {
+								// Promouvoir le participant le plus ancien comme admin
+								oldestParticipant.setIsAdmin(true);
+								oldestParticipant.setUpdatedAt(Utilities.getCurrentDate());
+								oldestParticipant.setUpdatedBy(request.getUser());
+								items.add(oldestParticipant);
+								
+								log.info("Auto-promotion admin : Le participant userId=" + oldestParticipant.getUser().getId() 
+										+ " (participantConversationId=" + oldestParticipant.getId() 
+										+ ") a été automatiquement promu admin du groupe (conversationId=" + conversation.getId() 
+										+ ") car le dernier admin (userId=" + participantUserId + ") quitte le groupe.");
+							} else {
+								log.warning("Aucun participant disponible pour promotion admin : Le dernier admin (userId=" + participantUserId 
+										+ ") quitte le groupe (conversationId=" + conversation.getId() + ") mais aucun autre participant n'a été trouvé.");
+							}
+						}
+					}
+				}
 			}
-
-
-
 
 			existingEntity.setDeletedAt(Utilities.getCurrentDate());
 			existingEntity.setDeletedBy(request.getUser());

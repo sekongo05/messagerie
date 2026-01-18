@@ -482,9 +482,9 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 				response.setHasError(true);
 				return response;
 			}
+			log.info("reponse" + existingMessage);
 
-
-			// VÉRIFICATION DES PERMISSIONS : L'utilisateur doit être participant de la conversation
+			// vérifie si le message appartient à la conversation
 			if (existingMessage.getConversation() == null) {
 				response.setStatus(functionalError.DATA_NOT_EXIST("Le message n'appartient à aucune conversation", locale));
 				response.setHasError(true);
@@ -492,6 +492,7 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 			}
 			
 			Conversation conversation = existingMessage.getConversation();
+			log.info("conversationcccc" + conversation);
 			List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(conversation.getId(), false);
 			
 			// Vérifier que l'utilisateur actuel est participant de la conversation
@@ -564,7 +565,7 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 		log.info("----begin get Message-----");
 
 		Response<MessageDto> response = new Response<MessageDto>();
-		List<Message> items 			 = messageRepository.getByCriteria(request, em, locale);
+		List<Message> items 			 = messageRepository.getByCriteriaCustomise(request, em, locale);
 
 		if (items != null && !items.isEmpty()) {
 			List<MessageDto> itemsDto = (Utilities.isTrue(request.getIsSimpleLoading())) ? MessageTransformer.INSTANCE.toLiteDtos(items) : MessageTransformer.INSTANCE.toDtos(items);
@@ -629,6 +630,7 @@ public class MessageBusiness implements IBasicBusiness<Request<MessageDto>, Resp
 					if (Utilities.notBlank(sender.getNom())) {
 						senderName += (Utilities.notBlank(senderName) ? " " : "") + sender.getNom();
 					}
+					/// si le nom et prenom est vide
 					if (Utilities.isBlank(senderName)) {
 						senderName = "Utilisateur " + createdBy;
 					}
