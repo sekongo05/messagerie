@@ -11,17 +11,22 @@ package ci.orange.messagerie.rest.api;
 
 import lombok.extern.java.Log;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import ci.orange.messagerie.utils.*;
+import jakarta.servlet.http.HttpServletRequest;
+import java.util.Locale;
+
 import ci.orange.messagerie.utils.dto.*;
 import ci.orange.messagerie.utils.contract.*;
 import ci.orange.messagerie.utils.contract.Request;
-import ci.orange.messagerie.utils.contract.Response;
 import ci.orange.messagerie.utils.enums.FunctionalityEnum;
 import ci.orange.messagerie.business.*;
 import ci.orange.messagerie.rest.fact.ControllerFactory;
@@ -42,6 +47,8 @@ public class ConversationController {
     private ControllerFactory<ConversationDto> controllerFactory;
 	@Autowired
 	private ConversationBusiness conversationBusiness;
+	@Autowired
+	private HttpServletRequest requestBasic;
 
 	@RequestMapping(value="/create",method=RequestMethod.POST,consumes = {"application/json"},produces={"application/json"})
     public Response<ConversationDto> create(@RequestBody Request<ConversationDto> request) {
@@ -74,4 +81,35 @@ public class ConversationController {
 		log.info("end method /conversation/getByCriteria");
         return response;
     }
+
+	@RequestMapping(value="/export", method=RequestMethod.POST, consumes = {"application/json"}, produces="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	public ResponseEntity<byte[]> exportConversations(@RequestBody Request<ConversationDto> request) throws Exception {
+		log.info("start method /conversation/export");
+		
+		// Déterminer la locale
+		String languageID = (String) requestBasic.getAttribute("CURRENT_LANGUAGE_IDENTIFIER");
+		if (languageID == null) {
+			languageID = "fr";
+		}
+		Locale locale = new Locale(languageID, "");
+		
+		// Appeler la méthode export du business
+		java.io.ByteArrayOutputStream outputStream = conversationBusiness.export(request, locale);
+		
+		// Configurer les headers HTTP
+		HttpHeaders httpHeaders = new HttpHeaders();
+		httpHeaders.setContentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+		httpHeaders.setContentDisposition(
+			ContentDisposition.attachment()
+				.filename("conversations_export.xlsx")
+				.build()
+		);
+		httpHeaders.setContentLength(outputStream.size());
+		
+		log.info("end method /conversation/export - Fichier de " + outputStream.size() + " octets généré");
+		
+		return ResponseEntity.ok()
+			.headers(httpHeaders)
+			.body(outputStream.toByteArray());
+	}
 }

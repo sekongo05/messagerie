@@ -22,6 +22,7 @@ import java.util.*;
 import ci.orange.messagerie.utils.*;
 import ci.orange.messagerie.utils.dto.*;
 import ci.orange.messagerie.utils.enums.*;
+import ci.orange.messagerie.utils.ExcelExportUtil;
 import ci.orange.messagerie.utils.contract.*;
 import ci.orange.messagerie.utils.contract.IBasicBusiness;
 import ci.orange.messagerie.utils.contract.Request;
@@ -842,6 +843,57 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 
 		log.info("----end get Conversation-----");
 		return response;
+	}
+
+	/**
+	 * Exporte les conversations vers un fichier Excel
+	 * 
+	 * @param request La requête contenant les critères de recherche
+	 * @param locale La locale pour les messages d'erreur
+	 * @return ByteArrayOutputStream contenant le fichier Excel
+	 * @throws Exception En cas d'erreur lors de l'export
+	 */
+	public java.io.ByteArrayOutputStream export(Request<ConversationDto> request, Locale locale) throws Exception {
+		log.info("----begin export Conversation to Excel-----");
+		
+		// Récupérer les conversations via getByCriteria
+		Response<ConversationDto> response = getByCriteria(request, locale);
+		
+		if (response.isHasError()) {
+			log.warning("Erreur lors de la récupération des conversations pour l'export : " + 
+					(response.getStatus() != null ? response.getStatus().getMessage() : "Erreur inconnue"));
+			throw new Exception("Impossible de récupérer les conversations pour l'export : " + 
+					(response.getStatus() != null ? response.getStatus().getMessage() : "Erreur inconnue"));
+		}
+		
+		if (response.getItems() == null || response.getItems().isEmpty()) {
+			log.info("Aucune conversation à exporter");
+			// Créer un fichier Excel vide avec juste les en-têtes
+			String[] headers = {"ID", "Titre", "Type de Conversation", "Date de création", "Créateur ID", "Dernier message", "Interlocuteur"};
+			return ExcelExportUtil.exportToExcel("Conversations", headers, new ArrayList<>());
+		}
+		
+		// Préparer les données pour l'export
+		String[] headers = {"ID", "Titre", "Type de Conversation", "Date de création", "Créateur ID", "Dernier message", "Interlocuteur"};
+		List<Map<String, Object>> data = new ArrayList<>();
+		
+		for (ConversationDto conv : response.getItems()) {
+			Map<String, Object> row = new HashMap<>();
+			row.put("ID", conv.getId());
+			row.put("Titre", conv.getTitre() != null ? conv.getTitre() : "");
+			row.put("Type de Conversation", conv.getTypeConversationCode() != null ? conv.getTypeConversationCode() : "");
+			row.put("Date de création", conv.getCreatedAt());
+			row.put("Créateur ID", conv.getCreatedBy());
+			row.put("Dernier message", conv.getLastMessage() != null ? conv.getLastMessage() : "");
+			row.put("Interlocuteur", conv.getInterlocuteurName() != null ? conv.getInterlocuteurName() : "");
+			data.add(row);
+		}
+		
+		// Générer le fichier Excel
+		java.io.ByteArrayOutputStream outputStream = ExcelExportUtil.exportToExcel("Conversations", headers, data);
+		
+		log.info("----end export Conversation to Excel - " + data.size() + " conversations exportées-----");
+		return outputStream;
 	}
 
 	/**
