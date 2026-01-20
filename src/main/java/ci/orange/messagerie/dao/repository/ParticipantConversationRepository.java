@@ -50,4 +50,31 @@ public interface ParticipantConversationRepository extends JpaRepository<Partici
       @Param("typeConversationCode") String typeConversationCode,
       @Param("isDeleted") Boolean isDeleted);
 
+  /**
+   * Trouve tous les participants actifs d'une conversation (non supprimés et n'ayant pas quitté)
+   * 
+   * @param conversationId L'ID de la conversation
+   * @return Liste des participants actifs
+   */
+  @Query("SELECT e FROM ParticipantConversation e WHERE e.conversation.id = :conversationId " +
+         "AND e.isDeleted = false " +
+         "AND (e.hasLeft = false OR e.hasLeft IS NULL) " +
+         "AND (e.hasDefinitivelyLeft = false OR e.hasDefinitivelyLeft IS NULL)")
+  List<ParticipantConversation> findActiveParticipantsByConversationId(@Param("conversationId") Integer conversationId);
+
+  /**
+   * Trouve le ParticipantConversation pour un utilisateur et une conversation spécifiques
+   * 
+   * @param userId L'ID de l'utilisateur
+   * @param conversationId L'ID de la conversation
+   * @param isDeleted Indique si on cherche les participants supprimés ou non
+   * @return Le ParticipantConversation correspondant, ou null s'il n'existe pas
+   */
+  @Query("SELECT e FROM ParticipantConversation e WHERE e.user.id = :userId " +
+         "AND e.conversation.id = :conversationId AND e.isDeleted = :isDeleted")
+  ParticipantConversation findByUserIdAndConversationId(
+      @Param("userId") Integer userId,
+      @Param("conversationId") Integer conversationId,
+      @Param("isDeleted") Boolean isDeleted);
+
 }

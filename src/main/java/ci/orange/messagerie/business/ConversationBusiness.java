@@ -57,6 +57,8 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 	@Autowired
 	private TypeMessageRepository typeMessageRepository;
 	@Autowired
+	private HistoriqueSuppressionMessageRepository historiqueSuppressionMessageRepository;
+	@Autowired
 	private FunctionalError functionalError;
 	@Autowired
 	private TechnicalError technicalError;
@@ -642,22 +644,129 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 				return response;
 			}
 
-			// participantConversation
+			// Récupérer les participants et messages liés à la conversation
 			List<ParticipantConversation> listOfParticipantConversation = participantConversationRepository.findByConversationId(existingEntity.getId(), false);
-			if (listOfParticipantConversation != null && !listOfParticipantConversation.isEmpty()){
-				response.setStatus(functionalError.DATA_NOT_DELETABLE("(" + listOfParticipantConversation.size() + ")", locale));
-				response.setHasError(true);
-				return response;
-			}
-			// message
 			List<Message> listOfMessage = messageRepository.findByConversationId(existingEntity.getId(), false);
-			if (listOfMessage != null && !listOfMessage.isEmpty()){
-				response.setStatus(functionalError.DATA_NOT_DELETABLE("(" + listOfMessage.size() + ")", locale));
-				response.setHasError(true);
+
+			// Si la conversation a encore des participants ou des messages,
+			if ((listOfParticipantConversation != null && !listOfParticipantConversation.isEmpty())
+					|| (listOfMessage != null && !listOfMessage.isEmpty())) {
+
+				Integer currentUserId = request.getUser();
+
+				if (currentUserId == null || currentUserId <= 0) {
+					response.setStatus(functionalError.DATA_NOT_DELETABLE("(" + 
+							((listOfParticipantConversation != null) ? listOfParticipantConversation.size() : 0) + " participants / " +
+							((listOfMessage != null) ? listOfMessage.size() : 0) + " messages)", locale));
+					response.setHasError(true);
+					return response;
+				}
+
+				// Déterminer le type de conversation
+				boolean isGroup = false;
+				boolean isPrivate = false;
+				if (existingEntity.getTypeConversation() != null && existingEntity.getTypeConversation().getCode() != null) {
+					String typeCode = existingEntity.getTypeConversation().getCode();
+					isGroup = "GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode);
+					isPrivate = "PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode);
+				}
+
+				// Rechercher le participant correspondant à l'utilisateur courant
+				ParticipantConversation currentParticipant = null;
+				if (listOfParticipantConversation != null && !listOfParticipantConversation.isEmpty()) {
+					for (ParticipantConversation pc : listOfParticipantConversation) {
+						if (pc.getUser() != null && pc.getUser().getId() != null
+								&& pc.getUser().getId().equals(currentUserId)) {
+							currentParticipant = pc;
+							break;
+						}
+					}
+				}
+
+				// Si on a un utilisateur mais qu'il n'est pas participant, on renvoie une erreur
+				if (currentParticipant == null) {
+					response.setStatus(functionalError.DATA_NOT_EXIST(
+							"participantConversation pour conversationId -> " + existingEntity.getId() + " et userId -> " + currentUserId,
+							locale));
+					response.setHasError(true);
+					return response;
+				}
+
+				// Pour un groupe, l'utilisateur ne peut clean la conversation que s'il a quitté le groupe
+				if (isGroup) {
+					boolean hasLeft = Boolean.TRUE.equals(currentParticipant.getHasLeft());
+					boolean hasDefinitivelyLeft = Boolean.TRUE.equals(currentParticipant.getHasDefinitivelyLeft());
+
+					if (!hasLeft && !hasDefinitivelyLeft) {
+						// L'utilisateur est toujours membre actif du groupe : interdiction de clean
+						response.setStatus(functionalError.DATA_NOT_DELETABLE(
+								"Vous devez quitter le groupe avant de pouvoir supprimer cette conversation.", locale));
+						response.setHasError(true);
+						return response;
+					}
+				}
+
+
+				currentParticipant.setHasCleaned(true);
+				currentParticipant.setUpdatedAt(Utilities.getCurrentDate());
+				currentParticipant.setUpdatedBy(currentUserId);
+				participantConversationRepository.save(currentParticipant);
+
+				// Créer les historiques de suppression pour tous les messages de la conversation
+				// Uniquement pour l'utilisateur qui effectue la suppression
+				try {
+					if (listOfMessage != null && !listOfMessage.isEmpty()) {
+						// Récupérer l'utilisateur courant
+						User currentUser = userRepository.findOne(currentUserId, false);
+						if (currentUser != null) {
+							List<HistoriqueSuppressionMessage> historiquesToSave = new ArrayList<>();
+							
+							for (Message message : listOfMessage) {
+								if (message != null && message.getId() != null) {
+									// Vérifier s'il existe déjà un historique pour ce message et cet utilisateur
+									HistoriqueSuppressionMessage existingHistorique = 
+										historiqueSuppressionMessageRepository.findByMessageIdAndUserId(
+											message.getId(), currentUserId, false);
+									
+									// Si aucun historique n'existe, créer un nouvel historique
+									if (existingHistorique == null) {
+										HistoriqueSuppressionMessage historique = new HistoriqueSuppressionMessage();
+										historique.setUser(currentUser);
+										historique.setMessage(message);
+										historique.setCreatedAt(Utilities.getCurrentDate());
+										historique.setCreatedBy(currentUserId);
+										historique.setIsDeleted(false);
+										
+										historiquesToSave.add(historique);
+									}
+								}
+							}
+							
+							// Sauvegarder tous les historiques créés en batch
+							if (!historiquesToSave.isEmpty()) {
+								historiqueSuppressionMessageRepository.saveAll(historiquesToSave);
+								log.info("Historiques de suppression créés pour " + historiquesToSave.size() + 
+										" message(s) de la conversation id=" + existingEntity.getId() + 
+										" pour l'utilisateur id=" + currentUserId);
+							}
+						} else {
+							log.warning("Impossible de créer les historiques de suppression : utilisateur id=" + 
+									currentUserId + " introuvable");
+						}
+					}
+				} catch (Exception e) {
+					// Ne pas faire échouer la suppression de conversation si la création des historiques échoue
+					log.severe("Erreur lors de la création des historiques de suppression pour la conversation id=" + 
+							existingEntity.getId() + " : " + e.getMessage());
+					e.printStackTrace();
+				}
+
+				// On ne supprime pas la conversation elle-même, seulement la vue côté utilisateur
+				response.setHasError(false);
 				return response;
 			}
 
-
+			// S'il n'y a plus de participants ni de messages, on peut supprimer (soft delete) la conversation
 			existingEntity.setDeletedAt(Utilities.getCurrentDate());
 			existingEntity.setDeletedBy(request.getUser());
 			existingEntity.setIsDeleted(true);
@@ -687,7 +796,27 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 		log.info("----begin get Conversation-----");
 
 		Response<ConversationDto> response = new Response<ConversationDto>();
-		List<Conversation> items 			 = conversationRepository.getByCriteria(request, em, locale);
+		List<Conversation> items 			 = conversationRepository.getByCriteriaCustomise(request, em, locale);
+
+		// Filtrer les conversations où hasCleaned = true pour l'utilisateur courant
+		Integer currentUserId = request.getUser();
+		if (currentUserId != null && currentUserId > 0 && items != null && !items.isEmpty()) {
+			List<Conversation> filteredItems = new ArrayList<>();
+			for (Conversation conv : items) {
+				// Récupérer directement le ParticipantConversation de l'utilisateur courant pour cette conversation
+				ParticipantConversation userParticipant = participantConversationRepository.findByUserIdAndConversationId(
+						currentUserId, conv.getId(), false);
+				
+				// Si le participant existe et a hasCleaned = true, exclure cette conversation
+				if (userParticipant != null && Boolean.TRUE.equals(userParticipant.getHasCleaned())) {
+					continue; // Passer à la conversation suivante
+				}
+				
+				// Inclure la conversation dans les résultats
+				filteredItems.add(conv);
+			}
+			items = filteredItems;
+		}
 
 		if (items != null && !items.isEmpty()) {
 			List<ConversationDto> itemsDto = (Utilities.isTrue(request.getIsSimpleLoading())) ? ConversationTransformer.INSTANCE.toLiteDtos(items) : ConversationTransformer.INSTANCE.toDtos(items);
@@ -708,7 +837,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 						     "PRIVATE".equalsIgnoreCase(dto.getTypeConversationCode()))) {
 							
 							// Récupérer l'interlocuteur (ID et nom) pour la conversation privée
-							Integer currentUserId = request.getUser();
+							// Utiliser la variable currentUserId déjà définie dans la méthode
 							if (currentUserId != null) {
 								try {
 									List<Object[]> interlocutorResult = conversationRepository.findInterlocutorForPrivateConversation(

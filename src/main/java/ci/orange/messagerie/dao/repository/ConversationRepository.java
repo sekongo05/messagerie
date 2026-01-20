@@ -135,4 +135,48 @@ public interface ConversationRepository extends JpaRepository<Conversation, Inte
         @Param("currentUserId") Integer currentUserId
     );
 
+    /**
+     * Récupère les conversations avec filtrage sur hasCleaned = false pour l'utilisateur courant
+     * @param request La requête contenant les critères de recherche
+     * @param em L'EntityManager
+     * @param locale La locale
+     * @return Liste des conversations où hasCleaned = false pour l'utilisateur courant
+     * @throws DataAccessException
+     * @throws Exception
+     */
+    public default List<Conversation> getByCriteriaCustomise(Request<ConversationDto> request, EntityManager em, Locale locale) throws DataAccessException, Exception {
+        String req = "select e from Conversation e where e IS NOT NULL";
+        HashMap<String, Object> param = new HashMap<String, Object>();
+        String whereExpression = getWhereExpression(request, param, locale);
+        
+        // Séparer la clause ORDER BY si elle existe
+        String orderByClause = "";
+        int orderByIndex = whereExpression.toLowerCase().indexOf("order by");
+        if (orderByIndex != -1) {
+            orderByClause = whereExpression.substring(orderByIndex);
+            whereExpression = whereExpression.substring(0, orderByIndex);
+        }
+        
+        req += whereExpression;
+        
+        // Exclure les conversations où hasCleaned = true pour l'utilisateur courant
+        Integer userId = request.getUser();
+        if (userId != null && userId > 0) {
+            req += " AND e.id NOT IN (SELECT pc.conversation.id FROM ParticipantConversation pc WHERE pc.user.id = :currentUserId AND pc.isDeleted = false AND pc.hasCleaned = true)";
+            param.put("currentUserId", userId);
+        }
+        
+        req += orderByClause; // Réajouter la clause ORDER BY
+        
+        TypedQuery<Conversation> query = em.createQuery(req, Conversation.class);
+        for (Map.Entry<String, Object> entry : param.entrySet()) {
+            query.setParameter(entry.getKey(), entry.getValue());
+        }
+        if (request.getIndex() != null && request.getSize() != null) {
+            query.setFirstResult(request.getIndex() * request.getSize());
+            query.setMaxResults(request.getSize());
+        }
+        return query.getResultList();
+    }
+
 }
