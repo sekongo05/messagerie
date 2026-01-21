@@ -85,18 +85,6 @@ public class ParticipantConversationController {
         return response;
     }
 
-	@RequestMapping(value="/leaveGroup",method=RequestMethod.POST,consumes = {"application/json"},produces={"application/json"})
-    public Response<ParticipantConversationDto> leaveGroup(@RequestBody Request<ParticipantConversationDto> request) throws Exception {
-    	log.info("start method /participantConversation/leaveGroup");
-        String languageID = (String) requestBasic.getAttribute("CURRENT_LANGUAGE_IDENTIFIER");
-        if (languageID == null) {
-            languageID = "fr";
-        }
-        Locale locale = new Locale(languageID, "");
-        Response<ParticipantConversationDto> response = participantConversationBusiness.leaveGroup(request, locale);
-		log.info("end method /participantConversation/leaveGroup");
-        return response;
-    }
 
 	@RequestMapping(value="/getByCriteria",method=RequestMethod.POST,consumes = {"application/json"},produces={"application/json"})
     public Response<ParticipantConversationDto> getByCriteria(@RequestBody Request<ParticipantConversationDto> request) {

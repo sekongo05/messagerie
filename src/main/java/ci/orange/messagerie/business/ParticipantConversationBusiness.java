@@ -238,12 +238,13 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 										// Réintégrer automatiquement le participant
 										Date currentDate = Utilities.getCurrentDate();
 										
-										// Réinitialiser les champs du premier départ
-										existingParticipant.setHasLeft(false);
+										// Réinitialiser les champs du premier départ (sauf hasLeft qui reste true)
+										existingParticipant.setHasLeft(true);  // RESTER À TRUE car a déjà quitté une fois
 										existingParticipant.setDeletedAt(null);
 										existingParticipant.setDeletedBy(null);
-										existingParticipant.setLeftAt(null);
-										existingParticipant.setLeftBy(null);
+										// CONSERVER leftAt et leftBy pour l'historique (ne pas les réinitialiser à null)
+										// existingParticipant.setLeftAt(null);  // CONSERVÉ
+										// existingParticipant.setLeftBy(null);  // CONSERVÉ
 										
 										// Mettre à jour les champs de réintégration
 										existingParticipant.setRecreatedAt(currentDate);
@@ -253,14 +254,17 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 										existingParticipant.setUpdatedBy(currentUserId);
 										
 										// Sauvegarder la réintégration
-										participantConversationRepository.save(existingParticipant);
+										ParticipantConversation savedParticipant = participantConversationRepository.save(existingParticipant);
 										
 										log.info("Réintégration automatique dans le groupe : Participant userId=" + dto.getUserId() 
 												+ " réintégré dans le groupe conversationId=" + existingConversation.getId() 
 												+ " par userId=" + currentUserId + " via create()");
 										
+										// Recharger l'entité pour s'assurer que tous les champs sont à jour
+										ParticipantConversation refreshedParticipant = participantConversationRepository.findOne(savedParticipant.getId(), false);
+										
 										// Transformer en DTO et retourner
-										ParticipantConversationDto participantDto = ParticipantConversationTransformer.INSTANCE.toDto(existingParticipant);
+										ParticipantConversationDto participantDto = ParticipantConversationTransformer.INSTANCE.toDto(refreshedParticipant);
 										try {
 											participantDto = getFullInfos(participantDto, 1, request.getIsSimpleLoading(), locale);
 										} catch (Exception e) {
@@ -354,6 +358,21 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			entityToSave.setCreatedAt(Utilities.getCurrentDate());
 			entityToSave.setCreatedBy(request.getUser());
 			entityToSave.setIsDeleted(false);
+			
+			// Initialiser les champs d'état pour qu'ils soient toujours présents dans la réponse JSON
+			// même pour un nouveau participant (évite que @JsonInclude(NON_NULL) les exclue)
+			if (entityToSave.getHasLeft() == null) {
+				entityToSave.setHasLeft(false);
+			}
+			if (entityToSave.getHasDefinitivelyLeft() == null) {
+				entityToSave.setHasDefinitivelyLeft(false);
+			}
+			if (entityToSave.getHasCleaned() == null) {
+				entityToSave.setHasCleaned(false);
+			}
+			if (entityToSave.getIsAdmin() == null) {
+				entityToSave.setIsAdmin(false);
+			}
 //			entityToSave.setStatusId(StatusEnum.ACTIVE);
 			items.add(entityToSave);
 		}
@@ -568,7 +587,7 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 	 * 
 	 */
 	@Override
-	public Response<ParticipantConversationDto> delete(Request<ParticipantConversationDto> request, Locale locale)  {
+	public Response<ParticipantConversationDto> delete(Request<ParticipantConversationDto> request, Locale locale) {
 		log.info("----begin delete ParticipantConversation-----");
 
 		Response<ParticipantConversationDto> response = new Response<ParticipantConversationDto>();
@@ -735,23 +754,23 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			
 			// Vérifier si c'est le premier départ ou le deuxième départ définitif
 			boolean hasAlreadyLeft = Boolean.TRUE.equals(existingEntity.getHasLeft());
+			boolean hasBeenRecreated = existingEntity.getRecreatedAt() != null;
 			
 			if (!hasAlreadyLeft) {
 				// PREMIER DÉPART
 				existingEntity.setHasLeft(true);
-				existingEntity.setDeletedAt(currentDate);
-				existingEntity.setDeletedBy(currentUserId);
 				existingEntity.setLeftAt(currentDate);
 				existingEntity.setLeftBy(currentUserId);
-				existingEntity.setIsDeleted(true);
+				// Ne pas mettre isDeleted = true car le participant peut être réintégré
+				// et doit rester visible dans l'historique WhatsApp
 				existingEntity.setUpdatedAt(currentDate);
 				existingEntity.setUpdatedBy(currentUserId);
 				
 				log.info("Premier départ du groupe : Participant userId=" + participantUserId 
 						+ " quitte le groupe conversationId=" + (conversation != null ? conversation.getId() : "N/A") 
 						+ " (peut être réintégré)");
-			} else {
-				// DEUXIÈME DÉPART DÉFINITIF
+			} else if (hasBeenRecreated) {
+				// DEUXIÈME DÉPART DÉFINITIF (après réintégration)
 				if (Boolean.TRUE.equals(existingEntity.getHasDefinitivelyLeft())) {
 					// Déjà définitivement parti, retourner une erreur
 					response.setStatus(functionalError.DATA_NOT_EXIST(
@@ -764,206 +783,59 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 				existingEntity.setHasCleaned(true);
 				existingEntity.setDefinitivelyLeftAt(currentDate);
 				existingEntity.setDefinitivelyLeftBy(currentUserId);
-				existingEntity.setDeletedAt(currentDate);
-				existingEntity.setDeletedBy(currentUserId);
-				existingEntity.setIsDeleted(true);
+				// Ne pas mettre isDeleted = true pour garder l'historique WhatsApp
+				// même si le participant ne peut plus être réintégré
 				existingEntity.setUpdatedAt(currentDate);
 				existingEntity.setUpdatedBy(currentUserId);
 				
 				log.info("Départ définitif du groupe : Participant userId=" + participantUserId 
 						+ " quitte définitivement le groupe conversationId=" + (conversation != null ? conversation.getId() : "N/A") 
-						+ " (ne peut plus être réintégré)");
-			}
-			
-			items.add(existingEntity);
-		}
-
-		if (!items.isEmpty()) {
-			// supprimer les donnees en base
-			participantConversationRepository.saveAll((Iterable<ParticipantConversation>) items);
-
-			response.setHasError(false);
-		}
-
-		log.info("----end delete ParticipantConversation-----");
-		return response;
-	}
-
-	/**
-	 * Gère le départ d'un participant du groupe (premier ou deuxième départ)
-	 * 
-	 * @param request La requête contenant les informations du participant
-	 * @param locale La locale pour les messages d'erreur
-	 * @return Response contenant le participant mis à jour
-	 */
-	public Response<ParticipantConversationDto> leaveGroup(Request<ParticipantConversationDto> request, Locale locale) throws Exception {
-		log.info("----begin leaveGroup ParticipantConversation-----");
-
-		Response<ParticipantConversationDto> response = new Response<ParticipantConversationDto>();
-		List<ParticipantConversation> items = new ArrayList<ParticipantConversation>();
-		
-		for (ParticipantConversationDto dto : request.getDatas()) {
-			// Vérifier les paramètres obligatoires
-			Map<String, java.lang.Object> fieldsToVerify = new HashMap<String, java.lang.Object>();
-			fieldsToVerify.put("conversationId", dto.getConversationId());
-			fieldsToVerify.put("userId", dto.getUserId());
-			if (!Validate.RequiredValue(fieldsToVerify).isGood()) {
-				response.setStatus(functionalError.FIELD_EMPTY(Validate.getValidate().getField(), locale));
-				response.setHasError(true);
-				return response;
-			}
-
-			// Vérifier si la conversation existe
-			Conversation conversation = conversationRepository.findOne(dto.getConversationId(), false);
-			if (conversation == null) {
-				response.setStatus(functionalError.DATA_NOT_EXIST("conversation conversationId -> " + dto.getConversationId(), locale));
-				response.setHasError(true);
-				return response;
-			}
-
-			// Vérifier si c'est un groupe
-			if (conversation.getTypeConversation() == null) {
-				response.setStatus(functionalError.DATA_NOT_EXIST("Le type de conversation n'est pas défini", locale));
-				response.setHasError(true);
-				return response;
-			}
-			
-			String typeCode = conversation.getTypeConversation().getCode();
-			boolean isGroup = typeCode != null && ("GROUP".equalsIgnoreCase(typeCode) || "GROUPE".equalsIgnoreCase(typeCode));
-			
-			if (!isGroup) {
-				response.setStatus(functionalError.DATA_NOT_EXIST("Cette méthode est uniquement disponible pour les groupes", locale));
-				response.setHasError(true);
-				return response;
-			}
-
-			// Chercher le participant
-			List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(dto.getConversationId(), false);
-			ParticipantConversation existingEntity = null;
-			
-			for (ParticipantConversation participant : participants) {
-				if (participant.getUser() != null && participant.getUser().getId() != null 
-						&& participant.getUser().getId().equals(dto.getUserId())) {
-					existingEntity = participant;
-					break;
-				}
-			}
-			
-			if (existingEntity == null) {
-				response.setStatus(functionalError.DATA_NOT_EXIST(
-						"participantConversation avec conversationId -> " + dto.getConversationId() + " et userId -> " + dto.getUserId(), locale));
-				response.setHasError(true);
-				return response;
-			}
-
-			// Vérifier les permissions
-			Integer currentUserId = request.getUser();
-			Integer participantUserId = dto.getUserId();
-			boolean isSelfLeaving = currentUserId != null && participantUserId != null && currentUserId.equals(participantUserId);
-			boolean isCreatorOrAdminRemoving = isCreatorOrAdmin(conversation, currentUserId);
-			
-			if (!isSelfLeaving && !isCreatorOrAdminRemoving) {
-				response.setStatus(functionalError.DATA_NOT_EXIST(
-						"Seuls le créateur du groupe ou un admin peuvent retirer des membres. Vous ne pouvez retirer que vous-même.", locale));
-				response.setHasError(true);
-				return response;
-			}
-
-			// Vérifier si le participant peut quitter
-			if (Boolean.TRUE.equals(existingEntity.getHasDefinitivelyLeft())) {
-				response.setStatus(functionalError.DATA_NOT_EXIST(
-						"Ce participant a déjà quitté définitivement le groupe.", locale));
-				response.setHasError(true);
-				return response;
-			}
-
-			Date currentDate = Utilities.getCurrentDate();
-			boolean hasAlreadyLeft = Boolean.TRUE.equals(existingEntity.getHasLeft());
-			
-			if (!hasAlreadyLeft) {
-				// PREMIER DÉPART
+						+ " (ne peut plus être réintégré) - Réintégration détectée via recreatedAt");
+			} else {
+				// Cas spécial : hasLeft = true mais pas de réintégration
+				// Ce cas ne devrait normalement pas arriver, mais on le gère comme 1er départ
+				// pour éviter un blocage (peut-être un état incohérent)
+				log.warning("État incohérent détecté : Participant userId=" + participantUserId 
+						+ " a hasLeft=true mais recreatedAt=null pour conversationId=" 
+						+ (conversation != null ? conversation.getId() : "N/A") 
+						+ ". Traitement comme premier départ.");
+				
 				existingEntity.setHasLeft(true);
-				existingEntity.setDeletedAt(currentDate);
-				existingEntity.setDeletedBy(currentUserId);
 				existingEntity.setLeftAt(currentDate);
 				existingEntity.setLeftBy(currentUserId);
-				existingEntity.setIsDeleted(true);
+				// Ne pas mettre isDeleted = true pour garder l'historique
 				existingEntity.setUpdatedAt(currentDate);
 				existingEntity.setUpdatedBy(currentUserId);
 				
-				log.info("Premier départ du groupe : Participant userId=" + participantUserId 
+				log.info("Premier départ du groupe (cas spécial) : Participant userId=" + participantUserId 
 						+ " quitte le groupe conversationId=" + (conversation != null ? conversation.getId() : "N/A") 
 						+ " (peut être réintégré)");
-			} else {
-				// DEUXIÈME DÉPART DÉFINITIF
-				existingEntity.setHasDefinitivelyLeft(true);
-				existingEntity.setHasCleaned(true);
-				existingEntity.setDefinitivelyLeftAt(currentDate);
-				existingEntity.setDefinitivelyLeftBy(currentUserId);
-				existingEntity.setDeletedAt(currentDate);
-				existingEntity.setDeletedBy(currentUserId);
-				existingEntity.setIsDeleted(true);
-				existingEntity.setUpdatedAt(currentDate);
-				existingEntity.setUpdatedBy(currentUserId);
-				
-				log.info("Départ définitif du groupe : Participant userId=" + participantUserId 
-						+ " quitte définitivement le groupe conversationId=" + (conversation != null ? conversation.getId() : "N/A") 
-						+ " (ne peut plus être réintégré)");
-			}
-			
-			// Gérer la promotion automatique d'admin si nécessaire
-			if (Boolean.TRUE.equals(existingEntity.getIsAdmin())) {
-				List<ParticipantConversation> allParticipants = participantConversationRepository.findByConversationId(conversation.getId(), false);
-				
-				if (allParticipants != null && !allParticipants.isEmpty()) {
-					int adminCount = 0;
-					for (ParticipantConversation participant : allParticipants) {
-						if (!participant.getId().equals(existingEntity.getId()) 
-								&& Boolean.TRUE.equals(participant.getIsAdmin())) {
-							adminCount++;
-						}
-					}
-					
-					if (adminCount == 0) {
-						ParticipantConversation oldestParticipant = null;
-						Date oldestDate = null;
-						
-						for (ParticipantConversation participant : allParticipants) {
-							if (participant.getId().equals(existingEntity.getId())) {
-								continue;
-							}
-							
-							if (participant.getCreatedAt() != null) {
-								if (oldestDate == null || participant.getCreatedAt().before(oldestDate)) {
-									oldestDate = participant.getCreatedAt();
-									oldestParticipant = participant;
-								}
-							}
-						}
-						
-						if (oldestParticipant != null) {
-							oldestParticipant.setIsAdmin(true);
-							oldestParticipant.setUpdatedAt(Utilities.getCurrentDate());
-							oldestParticipant.setUpdatedBy(currentUserId);
-							items.add(oldestParticipant);
-							
-							log.info("Auto-promotion admin : Le participant userId=" + oldestParticipant.getUser().getId() 
-									+ " a été automatiquement promu admin du groupe (conversationId=" + conversation.getId() 
-									+ ") car le dernier admin (userId=" + participantUserId + ") quitte le groupe.");
-						}
-					}
-				}
 			}
 			
 			items.add(existingEntity);
 		}
 
 		if (!items.isEmpty()) {
+			// sauvegarder les donnees en base
 			List<ParticipantConversation> itemsSaved = participantConversationRepository.saveAll((Iterable<ParticipantConversation>) items);
 			
-			List<ParticipantConversationDto> itemsDto = (Utilities.isTrue(request.getIsSimpleLoading())) 
-					? ParticipantConversationTransformer.INSTANCE.toLiteDtos(itemsSaved) 
-					: ParticipantConversationTransformer.INSTANCE.toDtos(itemsSaved);
+			if (itemsSaved == null) {
+				response.setStatus(functionalError.SAVE_FAIL("participantConversation", locale));
+				response.setHasError(true);
+				return response;
+			}
+			
+			// Transformer les entités sauvegardées en DTOs pour retourner au frontend
+			List<ParticipantConversationDto> itemsDto;
+			try {
+				itemsDto = (Utilities.isTrue(request.getIsSimpleLoading())) 
+						? ParticipantConversationTransformer.INSTANCE.toLiteDtos(itemsSaved) 
+						: ParticipantConversationTransformer.INSTANCE.toDtos(itemsSaved);
+			} catch (ParseException e) {
+				response.setStatus(functionalError.DATA_NOT_EXIST("Erreur lors de la transformation des données : " + e.getMessage(), locale));
+				response.setHasError(true);
+				return response;
+			}
 			
 			final int size = itemsSaved.size();
 			List<String> listOfError = Collections.synchronizedList(new ArrayList<String>());
@@ -983,7 +855,7 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			response.setHasError(false);
 		}
 
-		log.info("----end leaveGroup ParticipantConversation-----");
+		log.info("----end delete ParticipantConversation-----");
 		return response;
 	}
 
@@ -1199,7 +1071,23 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 	 * @throws Exception
 	 */
 	private ParticipantConversationDto getFullInfos(ParticipantConversationDto dto, Integer size, Boolean isSimpleLoading, Locale locale) throws Exception {
-		// put code here
+		// S'assurer que les champs d'état Boolean sont toujours initialisés à false si null
+		// pour qu'ils soient toujours présents dans la réponse JSON (évite que @JsonInclude(NON_NULL) les exclue)
+		if (dto.getHasLeft() == null) {
+			dto.setHasLeft(false);
+		}
+		if (dto.getHasDefinitivelyLeft() == null) {
+			dto.setHasDefinitivelyLeft(false);
+		}
+		if (dto.getHasCleaned() == null) {
+			dto.setHasCleaned(false);
+		}
+		if (dto.getIsAdmin() == null) {
+			dto.setIsAdmin(false);
+		}
+		if (dto.getIsDeleted() == null) {
+			dto.setIsDeleted(false);
+		}
 
 		if (Utilities.isTrue(isSimpleLoading)) {
 			return dto;
