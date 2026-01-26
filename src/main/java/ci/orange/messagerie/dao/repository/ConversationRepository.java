@@ -65,6 +65,48 @@ public interface ConversationRepository extends JpaRepository<Conversation, Inte
     Message findLastMessageByConversationId(@Param("conversationId") Integer conversationId);
 
     /**
+     * Récupère le dernier message visible par un utilisateur dans une conversation (logique WhatsApp)
+     * Pour les groupes, tient compte de l'historique de participation de l'utilisateur
+     * @param conversationId L'ID de la conversation
+     * @param userId L'ID de l'utilisateur
+     * @return Le dernier message visible par l'utilisateur, ou null si aucun message n'est visible
+     */
+    default Message findLastMessageByConversationIdForUser(Integer conversationId, Integer userId, EntityManager em) {
+        if (conversationId == null || userId == null) {
+            return findLastMessageByConversationId(conversationId);
+        }
+        
+        String req = "SELECT m FROM Message m WHERE m.conversation.id = :conversationId AND m.isDeleted = false";
+        req += " AND NOT EXISTS (SELECT 1 FROM HistoriqueSuppressionMessage h WHERE h.message.id = m.id AND h.user.id = :userId AND (h.isDeleted = false OR h.isDeleted IS NULL))";
+        req += " AND NOT EXISTS (";
+        req += "SELECT 1 FROM ParticipantConversation pc ";
+        req += "JOIN pc.conversation c ";
+        req += "JOIN c.typeConversation tc ";
+        req += "WHERE pc.conversation.id = m.conversation.id ";
+        req += "AND pc.user.id = :userId ";
+        req += "AND (tc.code = 'GROUP' OR tc.code = 'GROUPE') ";
+        req += "AND (";
+        req += "(pc.hasLeft IS NULL AND m.createdAt < pc.createdAt) ";
+        req += "OR ";
+        req += "(pc.hasLeft = false AND m.createdAt < pc.createdAt) ";
+        req += "OR ";
+        req += "(pc.hasLeft = true AND pc.recreatedAt IS NULL AND pc.leftAt IS NOT NULL AND m.createdAt >= pc.leftAt) ";
+        req += "OR ";
+        req += "(pc.hasLeft = true AND pc.recreatedAt IS NOT NULL AND pc.leftAt IS NOT NULL AND m.createdAt >= pc.leftAt AND m.createdAt < pc.recreatedAt) ";
+        req += ")";
+        req += ")";
+        req += " ORDER BY m.createdAt DESC";
+        
+        TypedQuery<Message> query = em.createQuery(req, Message.class);
+        query.setParameter("conversationId", conversationId);
+        query.setParameter("userId", userId);
+        query.setMaxResults(1);
+        
+        List<Message> results = query.getResultList();
+        return results.isEmpty() ? null : results.get(0);
+    }
+
+    /**
      * Récupère le nom de l'expéditeur et du destinataire pour une conversation privée
      * @param conversationId L'ID de la conversation privée
      * @param messageCreatedBy L'ID de l'utilisateur qui a créé le message (expéditeur)

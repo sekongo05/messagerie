@@ -360,7 +360,6 @@ public class ParticipantConversationBusiness implements IBasicBusiness<Request<P
 			entityToSave.setIsDeleted(false);
 			
 			// Initialiser les champs d'état pour qu'ils soient toujours présents dans la réponse JSON
-			// même pour un nouveau participant (évite que @JsonInclude(NON_NULL) les exclue)
 			if (entityToSave.getHasLeft() == null) {
 				entityToSave.setHasLeft(false);
 			}

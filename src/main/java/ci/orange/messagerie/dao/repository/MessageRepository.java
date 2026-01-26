@@ -109,6 +109,45 @@ public interface MessageRepository extends JpaRepository<Message, Integer>, _Mes
         if (userId != null && userId > 0) {
             req += " AND NOT EXISTS (SELECT 1 FROM HistoriqueSuppressionMessage h WHERE h.message.id = e.id AND h.user.id = :historiqueUserId AND (h.isDeleted = false OR h.isDeleted IS NULL))";
             param.put("historiqueUserId", userId);
+            
+            // Logique WhatsApp : Exclure les messages envoyés pendant que l'utilisateur n'était pas dans le groupe
+            // Récupérer le conversationId depuis le DTO de la requête
+            Integer conversationId = null;
+            MessageDto dto = request.getData();
+            if (dto != null && dto.getConversationId() != null) {
+                conversationId = dto.getConversationId();
+            } else if (request.getDatas() != null && !request.getDatas().isEmpty()) {
+                conversationId = request.getDatas().get(0).getConversationId();
+            }
+            
+            if (conversationId != null) {
+                // Logique WhatsApp pour les groupes : Exclure les messages selon l'historique de participation
+                // Règles :
+                // 1. Nouveau participant : ne voit que les messages envoyés APRÈS son ajout (createdAt du participant)
+                // 2. Participant qui a quitté : ne voit que les messages envoyés AVANT son départ (leftAt)
+                // 3. Participant réintégré : voit les messages d'avant son départ + ceux après sa réintégration
+                
+                // Construire la condition de filtrage de manière plus sûre et compatible JPQL
+                // Utiliser une syntaxe plus simple pour éviter les problèmes de parsing
+                req += " AND NOT EXISTS (";
+                req += "SELECT 1 FROM ParticipantConversation pc ";
+                req += "JOIN pc.conversation c ";
+                req += "JOIN c.typeConversation tc ";
+                req += "WHERE pc.conversation.id = e.conversation.id ";
+                req += "AND pc.user.id = :participantUserId ";
+                req += "AND (tc.code = 'GROUP' OR tc.code = 'GROUPE') ";
+                req += "AND (";
+                req += "(pc.hasLeft IS NULL AND e.createdAt < pc.createdAt) ";
+                req += "OR ";
+                req += "(pc.hasLeft = false AND e.createdAt < pc.createdAt) ";
+                req += "OR ";
+                req += "(pc.hasLeft = true AND pc.recreatedAt IS NULL AND pc.leftAt IS NOT NULL AND e.createdAt >= pc.leftAt) ";
+                req += "OR ";
+                req += "(pc.hasLeft = true AND pc.recreatedAt IS NOT NULL AND pc.leftAt IS NOT NULL AND e.createdAt >= pc.leftAt AND e.createdAt < pc.recreatedAt) ";
+                req += ")";
+                req += ")";
+                param.put("participantUserId", userId);
+            }
         }
         
         // Ré-ajouter la clause ORDER BY à la fin

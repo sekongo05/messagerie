@@ -874,8 +874,15 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 							}
 						}
 						
-						// Récupérer le dernier message de la conversation
-						Message lastMessage = conversationRepository.findLastMessageByConversationId(dto.getId());
+					// Récupérer le dernier message visible par l'utilisateur (logique WhatsApp)
+					Message lastMessage = null;
+					if (currentUserId != null && currentUserId > 0) {
+						// Utiliser la méthode qui tient compte de l'historique de participation
+						lastMessage = conversationRepository.findLastMessageByConversationIdForUser(dto.getId(), currentUserId, em);
+					} else {
+						// Fallback vers l'ancienne méthode si pas d'userId
+						lastMessage = conversationRepository.findLastMessageByConversationId(dto.getId());
+					}
 						if (lastMessage != null) {
 							dto.setMessageContent(lastMessage.getContent());
 							dto.setMessageImgUrl(lastMessage.getImgUrl());
