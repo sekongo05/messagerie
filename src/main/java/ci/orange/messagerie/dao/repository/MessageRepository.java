@@ -164,5 +164,26 @@ public interface MessageRepository extends JpaRepository<Message, Integer>, _Mes
         return query.getResultList();
     }
 
+    /**
+     * Récupère tous les messages d'une conversation pour l'export (sans filtre WhatsApp)
+     * Exclut uniquement les messages supprimés par l'utilisateur spécifié
+     * 
+     * @param conversationId L'ID de la conversation
+     * @param userId L'ID de l'utilisateur qui exporte (pour exclure ses messages supprimés)
+     * @param em L'EntityManager pour exécuter la requête
+     * @return Liste des messages triés par date de création croissante
+     */
+    default List<Message> findAllMessagesForExport(Integer conversationId, Integer userId, EntityManager em) {
+        String req = "SELECT m FROM Message m WHERE m.conversation.id = :conversationId AND m.isDeleted = false";
+        req += " AND NOT EXISTS (SELECT 1 FROM HistoriqueSuppressionMessage h WHERE h.message.id = m.id AND h.user.id = :userId AND (h.isDeleted = false OR h.isDeleted IS NULL))";
+        req += " ORDER BY m.createdAt ASC";
+        
+        TypedQuery<Message> query = em.createQuery(req, Message.class);
+        query.setParameter("conversationId", conversationId);
+        query.setParameter("userId", userId);
+        
+        return query.getResultList();
+    }
+
 
 }

@@ -112,4 +112,35 @@ public class ConversationController {
 			.headers(httpHeaders)
 			.body(outputStream.toByteArray());
 	}
+
+	@RequestMapping(value="/export-conversation", method=RequestMethod.POST, consumes = {"application/json"}, produces="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	public ResponseEntity<byte[]> exportConversation(@RequestBody Request<ConversationDto> request) throws Exception {
+		log.info("start method /conversation/export-conversation");
+		
+		// Déterminer la locale
+		String languageID = (String) requestBasic.getAttribute("CURRENT_LANGUAGE_IDENTIFIER");
+		if (languageID == null) {
+			languageID = "fr";
+		}
+		Locale locale = new Locale(languageID, "");
+		
+		// Appeler la méthode exportConversation du business
+		java.io.ByteArrayOutputStream outputStream = conversationBusiness.exportConversation(request, locale);
+		
+		// Configurer les headers HTTP
+		HttpHeaders httpHeaders = new HttpHeaders();
+		httpHeaders.setContentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+		httpHeaders.setContentDisposition(
+			ContentDisposition.attachment()
+				.filename("conversation_export.xlsx")
+				.build()
+		);
+		httpHeaders.setContentLength(outputStream.size());
+		
+		log.info("end method /conversation/export-conversation - Fichier de " + outputStream.size() + " octets généré");
+		
+		return ResponseEntity.ok()
+			.headers(httpHeaders)
+			.body(outputStream.toByteArray());
+	}
 }

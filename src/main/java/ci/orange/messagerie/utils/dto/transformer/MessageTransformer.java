@@ -74,7 +74,7 @@ public interface MessageTransformer {
 		@Mapping(source="dto.id", target="id"),
 		@Mapping(source="dto.content", target="content"),
 		@Mapping(source="dto.imgUrl", target="imgUrl"),
-		@Mapping(source="dto.createdAt", dateFormat="dd/MM/yyyy",target="createdAt"),
+			@Mapping(source="dto.createdAt", dateFormat="dd/MM/yyyy HH:mm:ss",target="createdAt"),
 		@Mapping(source="dto.updatedAt", dateFormat="dd/MM/yyyy",target="updatedAt"),
 		@Mapping(source="dto.deletedAt", dateFormat="dd/MM/yyyy",target="deletedAt"),
 		@Mapping(source="dto.createdBy", target="createdBy"),
