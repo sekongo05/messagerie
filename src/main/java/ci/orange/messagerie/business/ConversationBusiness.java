@@ -999,43 +999,358 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 	public java.io.ByteArrayOutputStream export(Request<ConversationDto> request, Locale locale) throws Exception {
 		log.info("----begin export Conversation to Excel-----");
 		
-		// Récupérer les conversations via getByCriteria
-		Response<ConversationDto> response = getByCriteria(request, locale);
-		
-		if (response.isHasError()) {
-			log.warning("Erreur lors de la récupération des conversations pour l'export : " + 
-					(response.getStatus() != null ? response.getStatus().getMessage() : "Erreur inconnue"));
-			throw new Exception("Impossible de récupérer les conversations pour l'export : " + 
-					(response.getStatus() != null ? response.getStatus().getMessage() : "Erreur inconnue"));
+		// Récupérer l'ID de l'utilisateur connecté
+		Integer userId = request.getUser();
+		if (userId == null || userId <= 0) {
+			throw new Exception("L'utilisateur connecté est obligatoire pour l'export");
 		}
 		
-		if (response.getItems() == null || response.getItems().isEmpty()) {
-			log.info("Aucune conversation à exporter");
-			// Créer un fichier Excel vide avec juste les en-têtes
-			String[] headers = {"ID", "Titre", "Type de Conversation", "Date de création", "Créateur ID", "Dernier message", "Interlocuteur"};
-			return ExcelExportUtil.exportToExcel("Conversations", headers, new ArrayList<>());
+		// Récupérer toutes les conversations où l'utilisateur est participant
+		List<ParticipantConversation> userParticipations = participantConversationRepository.findByUserId(userId, false);
+		
+		if (userParticipations == null || userParticipations.isEmpty()) {
+			log.info("Aucune conversation trouvée pour l'utilisateur " + userId);
+			// Créer un fichier Excel vide
+			XSSFWorkbook workbook = new XSSFWorkbook();
+			Sheet sheet = workbook.createSheet("Conversations");
+			Row row = sheet.createRow(0);
+			row.createCell(0).setCellValue("Aucune conversation trouvée");
+			java.io.ByteArrayOutputStream outputStream = new java.io.ByteArrayOutputStream();
+			workbook.write(outputStream);
+			workbook.close();
+			return outputStream;
 		}
 		
-		// Préparer les données pour l'export
-		String[] headers = {"ID", "Titre", "Type de Conversation", "Date de création", "sender ID", "message", "Interlocuteur"};
-		List<Map<String, Object>> data = new ArrayList<>();
-		
-		for (ConversationDto conv : response.getItems()) {
-			Map<String, Object> row = new HashMap<>();
-			row.put("ID", conv.getId());
-			row.put("Titre", conv.getTitre() != null ? conv.getTitre() : "");
-			row.put("Type de Conversation", conv.getTypeConversationCode() != null ? conv.getTypeConversationCode() : "");
-			row.put("Date de création", conv.getCreatedAt());
-			row.put("Créateur ID", conv.getCreatedBy());
-			row.put("message", conv.getMessageContent() != null ? conv.getMessageContent(): "");
-			row.put("Interlocuteur", conv.getInterlocuteurName() != null ? conv.getInterlocuteurName() : "");
-			data.add(row);
+		// Extraire les conversations uniques en excluant celles supprimées par l'utilisateur (hasCleaned = true)
+		Map<Integer, Conversation> conversationsMap = new HashMap<>();
+		for (ParticipantConversation participation : userParticipations) {
+			// Exclure les conversations supprimées par l'utilisateur (hasCleaned = true)
+			if (Boolean.TRUE.equals(participation.getHasCleaned())) {
+				log.info("Conversation " + participation.getConversation().getId() + " exclue car hasCleaned = true pour l'utilisateur " + userId);
+				continue;
+			}
+			
+			if (participation.getConversation() != null && 
+				(participation.getConversation().getIsDeleted() == null || !participation.getConversation().getIsDeleted())) {
+				conversationsMap.put(participation.getConversation().getId(), participation.getConversation());
+			}
 		}
 		
-		// Générer le fichier Excel
-		java.io.ByteArrayOutputStream outputStream = ExcelExportUtil.exportToExcel("Conversations", headers, data);
+		if (conversationsMap.isEmpty()) {
+			log.info("Aucune conversation active trouvée pour l'utilisateur " + userId);
+			XSSFWorkbook workbook = new XSSFWorkbook();
+			Sheet sheet = workbook.createSheet("Conversations");
+			Row row = sheet.createRow(0);
+			row.createCell(0).setCellValue("Aucune conversation active trouvée");
+			java.io.ByteArrayOutputStream outputStream = new java.io.ByteArrayOutputStream();
+			workbook.write(outputStream);
+			workbook.close();
+			return outputStream;
+		}
 		
-		log.info("----end export Conversation to Excel - " + data.size() + " conversations exportées-----");
+		// Créer le workbook Excel
+		XSSFWorkbook workbook = new XSSFWorkbook();
+		Sheet sheet = workbook.createSheet("Conversations");
+		
+		// Styles améliorés avec palette de couleurs unique orange
+		
+		// Style pour les en-têtes de colonnes (messages) - Orange vif avec texte blanc
+		CellStyle headerStyle = workbook.createCellStyle();
+		Font headerFont = workbook.createFont();
+		headerFont.setBold(true);
+		headerFont.setFontHeightInPoints((short) 11);
+		headerFont.setColor(IndexedColors.WHITE.getIndex());
+		headerStyle.setFont(headerFont);
+		headerStyle.setFillForegroundColor(IndexedColors.ORANGE.getIndex());
+		headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+		headerStyle.setBorderBottom(BorderStyle.THIN);
+		headerStyle.setBorderTop(BorderStyle.THIN);
+		headerStyle.setBorderLeft(BorderStyle.THIN);
+		headerStyle.setBorderRight(BorderStyle.THIN);
+		headerStyle.setAlignment(HorizontalAlignment.CENTER);
+		headerStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+		headerStyle.setWrapText(true);
+		
+		// Style pour les en-têtes de section (CONVERSATION #X, MESSAGES) - Orange avec texte blanc
+		CellStyle sectionHeaderStyle = workbook.createCellStyle();
+		Font sectionFont = workbook.createFont();
+		sectionFont.setBold(true);
+		sectionFont.setFontHeightInPoints((short) 14);
+		sectionFont.setColor(IndexedColors.WHITE.getIndex());
+		sectionHeaderStyle.setFont(sectionFont);
+		sectionHeaderStyle.setFillForegroundColor(IndexedColors.ORANGE.getIndex());
+		sectionHeaderStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+		sectionHeaderStyle.setBorderBottom(BorderStyle.THIN);
+		sectionHeaderStyle.setBorderTop(BorderStyle.THIN);
+		sectionHeaderStyle.setBorderLeft(BorderStyle.THIN);
+		sectionHeaderStyle.setBorderRight(BorderStyle.THIN);
+		sectionHeaderStyle.setAlignment(HorizontalAlignment.LEFT);
+		sectionHeaderStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+		sectionHeaderStyle.setIndention((short) 2);
+		
+		// Style pour les cellules de données (messages) - Blanc avec bordures fines
+		CellStyle dataStyle = workbook.createCellStyle();
+		dataStyle.setBorderBottom(BorderStyle.THIN);
+		dataStyle.setBorderTop(BorderStyle.THIN);
+		dataStyle.setBorderLeft(BorderStyle.THIN);
+		dataStyle.setBorderRight(BorderStyle.THIN);
+		dataStyle.setVerticalAlignment(VerticalAlignment.TOP);
+		dataStyle.setWrapText(true);
+		Font dataFont = workbook.createFont();
+		dataFont.setFontHeightInPoints((short) 10);
+		dataStyle.setFont(dataFont);
+		
+		// Style pour les cellules de données avec fond alterné (lignes impaires) - Blanc
+		CellStyle dataStyleEven = workbook.createCellStyle();
+		dataStyleEven.cloneStyleFrom(dataStyle);
+		
+		// Style pour les labels (ID:, Titre:, etc.) - Sans couleur de fond, texte en gras
+		CellStyle labelStyle = workbook.createCellStyle();
+		Font labelFont = workbook.createFont();
+		labelFont.setBold(true);
+		labelFont.setFontHeightInPoints((short) 10);
+		labelStyle.setFont(labelFont);
+		labelStyle.setBorderBottom(BorderStyle.THIN);
+		labelStyle.setBorderTop(BorderStyle.THIN);
+		labelStyle.setBorderLeft(BorderStyle.THIN);
+		labelStyle.setBorderRight(BorderStyle.THIN);
+		labelStyle.setAlignment(HorizontalAlignment.RIGHT);
+		labelStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+		
+		// Style pour les valeurs (à côté des labels) - Blanc avec bordures fines
+		CellStyle valueStyle = workbook.createCellStyle();
+		valueStyle.setBorderBottom(BorderStyle.THIN);
+		valueStyle.setBorderTop(BorderStyle.THIN);
+		valueStyle.setBorderLeft(BorderStyle.THIN);
+		valueStyle.setBorderRight(BorderStyle.THIN);
+		valueStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+		valueStyle.setWrapText(true);
+		Font valueFont = workbook.createFont();
+		valueFont.setFontHeightInPoints((short) 10);
+		valueStyle.setFont(valueFont);
+		
+		SimpleDateFormat sdfDate = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
+		int rowIndex = 0;
+		Row row;
+		Cell cell;
+		
+		// Trier les conversations par ID pour un ordre cohérent
+		List<Conversation> sortedConversations = new ArrayList<>(conversationsMap.values());
+		sortedConversations.sort((c1, c2) -> Integer.compare(c1.getId(), c2.getId()));
+		
+		// Pour chaque conversation
+		for (Conversation conversation : sortedConversations) {
+			// Récupérer tous les messages de cette conversation (en excluant ceux dans HistoriqueSuppressionMessage)
+			List<Message> messages = messageRepository.findAllMessagesForExport(conversation.getId(), userId, em);
+			
+			// === SECTION : Informations de la conversation ===
+			row = sheet.createRow(rowIndex++);
+			row.setHeightInPoints(22);
+			cell = row.createCell(0);
+			cell.setCellValue("CONVERSATION #" + conversation.getId() + " - " + 
+				(conversation.getTitre() != null ? conversation.getTitre() : "Sans titre"));
+			cell.setCellStyle(sectionHeaderStyle);
+			sheet.addMergedRegion(new CellRangeAddress(rowIndex - 1, rowIndex - 1, 0, 4));
+			
+			rowIndex++; // Ligne vide
+			
+			// Détails de la conversation avec styles améliorés
+			row = sheet.createRow(rowIndex++);
+			cell = row.createCell(0);
+			cell.setCellValue("ID:");
+			cell.setCellStyle(labelStyle);
+			cell = row.createCell(1);
+			cell.setCellValue(conversation.getId());
+			cell.setCellStyle(valueStyle);
+			
+			row = sheet.createRow(rowIndex++);
+			cell = row.createCell(0);
+			cell.setCellValue("Titre:");
+			cell.setCellStyle(labelStyle);
+			cell = row.createCell(1);
+			cell.setCellValue(conversation.getTitre() != null ? conversation.getTitre() : "Sans titre");
+			cell.setCellStyle(valueStyle);
+			
+			row = sheet.createRow(rowIndex++);
+			cell = row.createCell(0);
+			cell.setCellValue("Type:");
+			cell.setCellStyle(labelStyle);
+			cell = row.createCell(1);
+			if (conversation.getTypeConversation() != null) {
+				cell.setCellValue(conversation.getTypeConversation().getLibelle() != null ? conversation.getTypeConversation().getLibelle() : "");
+			} else {
+				cell.setCellValue("");
+			}
+			cell.setCellStyle(valueStyle);
+			
+			row = sheet.createRow(rowIndex++);
+			cell = row.createCell(0);
+			cell.setCellValue("Date de création:");
+			cell.setCellStyle(labelStyle);
+			cell = row.createCell(1);
+			cell.setCellValue(conversation.getCreatedAt() != null ? sdfDate.format(conversation.getCreatedAt()) : "");
+			cell.setCellStyle(valueStyle);
+			
+			row = sheet.createRow(rowIndex++);
+			cell = row.createCell(0);
+			cell.setCellValue("Créé par:");
+			cell.setCellStyle(labelStyle);
+			cell = row.createCell(1);
+			User creator = userRepository.findOne(conversation.getCreatedBy(), false);
+			if (creator != null) {
+				String creatorName = "";
+				if (Utilities.notBlank(creator.getPrenoms())) {
+					creatorName = creator.getPrenoms();
+				}
+				if (Utilities.notBlank(creator.getNom())) {
+					creatorName += (Utilities.notBlank(creatorName) ? " " : "") + creator.getNom();
+				}
+				if (Utilities.isBlank(creatorName)) {
+					creatorName = "Utilisateur " + conversation.getCreatedBy();
+				}
+				cell.setCellValue(creatorName);
+			} else {
+				cell.setCellValue("Inconnu");
+			}
+			cell.setCellStyle(valueStyle);
+			
+			// Pour les conversations privées, afficher l'interlocuteur
+			if (conversation.getTypeConversation() != null) {
+				String typeCode = conversation.getTypeConversation().getCode();
+				if (typeCode != null && ("PRIVEE".equalsIgnoreCase(typeCode) || "PRIVATE".equalsIgnoreCase(typeCode))) {
+					row = sheet.createRow(rowIndex++);
+					cell = row.createCell(0);
+					cell.setCellValue("Interlocuteur:");
+					cell.setCellStyle(labelStyle);
+					cell = row.createCell(1);
+					List<ParticipantConversation> participants = participantConversationRepository.findByConversationId(conversation.getId(), false);
+					String interlocuteurName = "";
+					for (ParticipantConversation participant : participants) {
+						if (participant.getUser() != null && !participant.getUser().getId().equals(userId)) {
+							String name = "";
+							if (Utilities.notBlank(participant.getUser().getPrenoms())) {
+								name = participant.getUser().getPrenoms();
+							}
+							if (Utilities.notBlank(participant.getUser().getNom())) {
+								name += (Utilities.notBlank(name) ? " " : "") + participant.getUser().getNom();
+							}
+							if (Utilities.isBlank(name)) {
+								name = "Utilisateur " + participant.getUser().getId();
+							}
+							interlocuteurName = name;
+							break;
+						}
+					}
+					cell.setCellValue(interlocuteurName);
+					cell.setCellStyle(valueStyle);
+				}
+			}
+			
+			rowIndex++; // Ligne vide
+			
+			// === SECTION : Messages ===
+			row = sheet.createRow(rowIndex++);
+			row.setHeightInPoints(22);
+			cell = row.createCell(0);
+			cell.setCellValue("MESSAGES (" + (messages != null ? messages.size() : 0) + ")");
+			cell.setCellStyle(sectionHeaderStyle);
+			sheet.addMergedRegion(new CellRangeAddress(rowIndex - 1, rowIndex - 1, 0, 4));
+			
+			rowIndex++; // Ligne vide
+			
+			// En-têtes messages
+			row = sheet.createRow(rowIndex++);
+			row.setHeightInPoints(18);
+			cell = row.createCell(0);
+			cell.setCellValue("Date/Heure");
+			cell.setCellStyle(headerStyle);
+			cell = row.createCell(1);
+			cell.setCellValue("Expéditeur");
+			cell.setCellStyle(headerStyle);
+			cell = row.createCell(2);
+			cell.setCellValue("Contenu");
+			cell.setCellStyle(headerStyle);
+			cell = row.createCell(3);
+			cell.setCellValue("Image");
+			cell.setCellStyle(headerStyle);
+			
+			// Liste des messages avec alternance de couleurs
+			if (messages != null && !messages.isEmpty()) {
+				int messageIndex = 0;
+				for (Message message : messages) {
+					row = sheet.createRow(rowIndex++);
+					
+					// Utiliser un style alterné pour les lignes paires/impaires
+					CellStyle currentDataStyle = (messageIndex % 2 == 0) ? dataStyle : dataStyleEven;
+					
+					// Date/Heure
+					cell = row.createCell(0);
+					cell.setCellValue(message.getCreatedAt() != null ? sdfDate.format(message.getCreatedAt()) : "");
+					cell.setCellStyle(currentDataStyle);
+					
+					// Expéditeur
+					cell = row.createCell(1);
+					if (message.getCreatedBy() != null) {
+						User sender = userRepository.findOne(message.getCreatedBy(), false);
+						if (sender != null) {
+							String senderName = "";
+							if (Utilities.notBlank(sender.getPrenoms())) {
+								senderName = sender.getPrenoms();
+							}
+							if (Utilities.notBlank(sender.getNom())) {
+								senderName += (Utilities.notBlank(senderName) ? " " : "") + sender.getNom();
+							}
+							if (Utilities.isBlank(senderName)) {
+								senderName = "Utilisateur " + message.getCreatedBy();
+							}
+							cell.setCellValue(senderName);
+						} else {
+							cell.setCellValue("Utilisateur " + message.getCreatedBy());
+						}
+					} else {
+						cell.setCellValue("");
+					}
+					cell.setCellStyle(currentDataStyle);
+					
+					// Contenu
+					cell = row.createCell(2);
+					cell.setCellValue(message.getContent() != null ? message.getContent() : "");
+					cell.setCellStyle(currentDataStyle);
+					
+					// Image
+					cell = row.createCell(3);
+					if (Utilities.notBlank(message.getImgUrl())) {
+						cell.setCellValue("[Image]");
+					} else {
+						cell.setCellValue("");
+					}
+					cell.setCellStyle(currentDataStyle);
+					
+					messageIndex++;
+				}
+			} else {
+				row = sheet.createRow(rowIndex++);
+				cell = row.createCell(0);
+				cell.setCellValue("Aucun message");
+				cell.setCellStyle(valueStyle);
+				sheet.addMergedRegion(new CellRangeAddress(rowIndex - 1, rowIndex - 1, 0, 4));
+			}
+			
+			rowIndex += 2; // Lignes vides entre les conversations
+		}
+		
+		// Ajuster la largeur des colonnes avec des largeurs optimales
+		sheet.setColumnWidth(0, 25 * 256); // Date/Heure : 25 caractères
+		sheet.setColumnWidth(1, 20 * 256); // Expéditeur : 20 caractères
+		sheet.setColumnWidth(2, 50 * 256); // Contenu : 50 caractères
+		sheet.setColumnWidth(3, 15 * 256); // Image : 15 caractères
+		
+		// Écrire le workbook dans un ByteArrayOutputStream
+		java.io.ByteArrayOutputStream outputStream = new java.io.ByteArrayOutputStream();
+		workbook.write(outputStream);
+		workbook.close();
+		
+		log.info("----end export Conversation to Excel - " + sortedConversations.size() + " conversations exportées pour l'utilisateur " + userId + "-----");
 		return outputStream;
 	}
 	/**
@@ -1083,12 +1398,18 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 		// Vérifier que l'utilisateur est membre
 		ParticipantConversation membership = participantConversationRepository.findByUserIdAndConversationId(
 				userId, conversationId, false);
-
+		
 		if (membership == null) {
 			throw new Exception("Vous n'êtes pas membre de cette conversation");
 		}
-
+		
+		// Vérifier que la conversation n'a pas été supprimée par l'utilisateur (hasCleaned = true)
+		if (Boolean.TRUE.equals(membership.getHasCleaned())) {
+			throw new Exception("Cette conversation a été supprimée de votre liste. Vous ne pouvez pas l'exporter.");
+		}
+		
 		// Récupérer tous les messages visibles pour cet utilisateur (sans filtre WhatsApp)
+		// Note: Les messages dans HistoriqueSuppressionMessage sont déjà exclus par findAllMessagesForExport
 		List<Message> messages = messageRepository.findAllMessagesForExport(conversationId, userId, em);
 
 		// Récupérer tous les participants
@@ -1098,31 +1419,82 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 		XSSFWorkbook workbook = new XSSFWorkbook();
 		Sheet sheet = workbook.createSheet("Conversation");
 
-		// Styles
+		// Styles améliorés avec palette de couleurs unique orange
+		
+		// Style pour les en-têtes de colonnes - Orange vif avec texte blanc
 		CellStyle headerStyle = workbook.createCellStyle();
 		Font headerFont = workbook.createFont();
 		headerFont.setBold(true);
-		headerFont.setFontHeightInPoints((short) 12);
+		headerFont.setFontHeightInPoints((short) 11);
+		headerFont.setColor(IndexedColors.WHITE.getIndex());
 		headerStyle.setFont(headerFont);
-		headerStyle.setFillForegroundColor(IndexedColors.LIGHT_BLUE.getIndex());
+		headerStyle.setFillForegroundColor(IndexedColors.ORANGE.getIndex());
 		headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
 		headerStyle.setBorderBottom(BorderStyle.THIN);
 		headerStyle.setBorderTop(BorderStyle.THIN);
 		headerStyle.setBorderLeft(BorderStyle.THIN);
 		headerStyle.setBorderRight(BorderStyle.THIN);
 		headerStyle.setAlignment(HorizontalAlignment.CENTER);
+		headerStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+		headerStyle.setWrapText(true);
 
+		// Style pour les en-têtes de section - Orange avec texte blanc
 		CellStyle sectionHeaderStyle = workbook.createCellStyle();
 		Font sectionFont = workbook.createFont();
 		sectionFont.setBold(true);
-		sectionFont.setFontHeightInPoints((short) 11);
+		sectionFont.setFontHeightInPoints((short) 14);
+		sectionFont.setColor(IndexedColors.WHITE.getIndex());
 		sectionHeaderStyle.setFont(sectionFont);
+		sectionHeaderStyle.setFillForegroundColor(IndexedColors.ORANGE.getIndex());
+		sectionHeaderStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+		sectionHeaderStyle.setBorderBottom(BorderStyle.THIN);
+		sectionHeaderStyle.setBorderTop(BorderStyle.THIN);
+		sectionHeaderStyle.setBorderLeft(BorderStyle.THIN);
+		sectionHeaderStyle.setBorderRight(BorderStyle.THIN);
+		sectionHeaderStyle.setAlignment(HorizontalAlignment.LEFT);
+		sectionHeaderStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+		sectionHeaderStyle.setIndention((short) 2);
 
+		// Style pour les cellules de données - Blanc avec bordures fines
 		CellStyle dataStyle = workbook.createCellStyle();
 		dataStyle.setBorderBottom(BorderStyle.THIN);
 		dataStyle.setBorderTop(BorderStyle.THIN);
 		dataStyle.setBorderLeft(BorderStyle.THIN);
 		dataStyle.setBorderRight(BorderStyle.THIN);
+		dataStyle.setVerticalAlignment(VerticalAlignment.TOP);
+		dataStyle.setWrapText(true);
+		Font dataFont = workbook.createFont();
+		dataFont.setFontHeightInPoints((short) 10);
+		dataStyle.setFont(dataFont);
+		
+		// Style pour les cellules de données avec fond alterné (lignes impaires) - Blanc
+		CellStyle dataStyleEven = workbook.createCellStyle();
+		dataStyleEven.cloneStyleFrom(dataStyle);
+		
+		// Style pour les labels - Sans couleur de fond, texte en gras
+		CellStyle labelStyle = workbook.createCellStyle();
+		Font labelFont = workbook.createFont();
+		labelFont.setBold(true);
+		labelFont.setFontHeightInPoints((short) 10);
+		labelStyle.setFont(labelFont);
+		labelStyle.setBorderBottom(BorderStyle.THIN);
+		labelStyle.setBorderTop(BorderStyle.THIN);
+		labelStyle.setBorderLeft(BorderStyle.THIN);
+		labelStyle.setBorderRight(BorderStyle.THIN);
+		labelStyle.setAlignment(HorizontalAlignment.RIGHT);
+		labelStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+		
+		// Style pour les valeurs - Blanc avec bordures fines
+		CellStyle valueStyle = workbook.createCellStyle();
+		valueStyle.setBorderBottom(BorderStyle.THIN);
+		valueStyle.setBorderTop(BorderStyle.THIN);
+		valueStyle.setBorderLeft(BorderStyle.THIN);
+		valueStyle.setBorderRight(BorderStyle.THIN);
+		valueStyle.setVerticalAlignment(VerticalAlignment.CENTER);
+		valueStyle.setWrapText(true);
+		Font valueFont = workbook.createFont();
+		valueFont.setFontHeightInPoints((short) 10);
+		valueStyle.setFont(valueFont);
 
 		int rowIndex = 0;
 		Row row;
@@ -1130,6 +1502,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 
 		// === SECTION 1 : Informations de la conversation ===
 		row = sheet.createRow(rowIndex++);
+		row.setHeightInPoints(22);
 		cell = row.createCell(0);
 		cell.setCellValue("INFORMATIONS DE LA CONVERSATION");
 		cell.setCellStyle(sectionHeaderStyle);
@@ -1141,24 +1514,29 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 		row = sheet.createRow(rowIndex++);
 		cell = row.createCell(0);
 		cell.setCellValue("Titre:");
+		cell.setCellStyle(labelStyle);
 		cell = row.createCell(1);
 		cell.setCellValue(Utilities.isNotBlank(conversation.getTitre()) ? conversation.getTitre() : "Sans titre");
+		cell.setCellStyle(valueStyle);
 
 		// Type
 		row = sheet.createRow(rowIndex++);
 		cell = row.createCell(0);
 		cell.setCellValue("Type:");
+		cell.setCellStyle(labelStyle);
 		cell = row.createCell(1);
 		if (conversation.getTypeConversation() != null) {
 			cell.setCellValue(conversation.getTypeConversation().getLibelle() != null ? conversation.getTypeConversation().getLibelle() : "");
 		} else {
 			cell.setCellValue("");
 		}
+		cell.setCellStyle(valueStyle);
 
 		// Créateur
 		row = sheet.createRow(rowIndex++);
 		cell = row.createCell(0);
 		cell.setCellValue("Créé par:");
+		cell.setCellStyle(labelStyle);
 		cell = row.createCell(1);
 		User creator = userRepository.findOne(conversation.getCreatedBy(), false);
 		if (creator != null) {
@@ -1176,18 +1554,22 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 		} else {
 			cell.setCellValue("Inconnu");
 		}
+		cell.setCellStyle(valueStyle);
 
 		// Date de création
 		row = sheet.createRow(rowIndex++);
 		cell = row.createCell(0);
 		cell.setCellValue("Date de création:");
+		cell.setCellStyle(labelStyle);
 		cell = row.createCell(1);
 		cell.setCellValue(conversation.getCreatedAt() != null ? sdfDate.format(conversation.getCreatedAt()) : "");
+		cell.setCellStyle(valueStyle);
 
 		rowIndex++; // Ligne vide
 
 		// === SECTION 2 : Participants ===
 		row = sheet.createRow(rowIndex++);
+		row.setHeightInPoints(22);
 		cell = row.createCell(0);
 		cell.setCellValue("PARTICIPANTS (" + participants.size() + ")");
 		cell.setCellStyle(sectionHeaderStyle);
@@ -1197,6 +1579,7 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 
 		// En-têtes participants
 		row = sheet.createRow(rowIndex++);
+		row.setHeightInPoints(18);
 		cell = row.createCell(0);
 		cell.setCellValue("Nom");
 		cell.setCellStyle(headerStyle);
@@ -1213,28 +1596,30 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 		cell.setCellValue("Statut");
 		cell.setCellStyle(headerStyle);
 
-		// Liste des participants
+		// Liste des participants avec alternance de couleurs
+		int participantIndex = 0;
 		for (ParticipantConversation participant : participants) {
 			row = sheet.createRow(rowIndex++);
-
+			
 			User user = participant.getUser();
-
+			CellStyle currentParticipantStyle = (participantIndex % 2 == 0) ? dataStyle : dataStyleEven;
+			
 			cell = row.createCell(0);
 			cell.setCellValue(user != null && user.getNom() != null ? user.getNom() : "");
-			cell.setCellStyle(dataStyle);
-
+			cell.setCellStyle(currentParticipantStyle);
+			
 			cell = row.createCell(1);
 			cell.setCellValue(user != null && user.getPrenoms() != null ? user.getPrenoms() : "");
-			cell.setCellStyle(dataStyle);
-
+			cell.setCellStyle(currentParticipantStyle);
+			
 			cell = row.createCell(2);
 			cell.setCellValue(Boolean.TRUE.equals(participant.getIsAdmin()) ? "Administrateur" : "Membre");
-			cell.setCellStyle(dataStyle);
-
+			cell.setCellStyle(currentParticipantStyle);
+			
 			cell = row.createCell(3);
 			cell.setCellValue(participant.getCreatedAt() != null ? sdfDate.format(participant.getCreatedAt()) : "");
-			cell.setCellStyle(dataStyle);
-
+			cell.setCellStyle(currentParticipantStyle);
+			
 			cell = row.createCell(4);
 			String status = "Actif";
 			if (Boolean.TRUE.equals(participant.getHasDefinitivelyLeft())) {
@@ -1243,22 +1628,26 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 				status = "Quitté";
 			}
 			cell.setCellValue(status);
-			cell.setCellStyle(dataStyle);
+			cell.setCellStyle(currentParticipantStyle);
+			
+			participantIndex++;
 		}
 
 		rowIndex += 2; // Lignes vides
 
 		// === SECTION 3 : Messages ===
 		row = sheet.createRow(rowIndex++);
+		row.setHeightInPoints(22);
 		cell = row.createCell(0);
 		cell.setCellValue("MESSAGES (" + messages.size() + ")");
 		cell.setCellStyle(sectionHeaderStyle);
 		sheet.addMergedRegion(new CellRangeAddress(rowIndex - 1, rowIndex - 1, 0, 3));
-
+		
 		rowIndex++; // Ligne vide
-
+		
 		// En-têtes messages
 		row = sheet.createRow(rowIndex++);
+		row.setHeightInPoints(18);
 		cell = row.createCell(0);
 		cell.setCellValue("Date/Heure");
 		cell.setCellStyle(headerStyle);
@@ -1272,15 +1661,18 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 		cell.setCellValue("Image");
 		cell.setCellStyle(headerStyle);
 
-		// Liste des messages
+		// Liste des messages avec alternance de couleurs
+		int messageIndex = 0;
 		for (Message message : messages) {
 			row = sheet.createRow(rowIndex++);
-
+			
+			CellStyle currentMessageStyle = (messageIndex % 2 == 0) ? dataStyle : dataStyleEven;
+			
 			// Date/Heure
 			cell = row.createCell(0);
 			cell.setCellValue(message.getCreatedAt() != null ? sdfDate.format(message.getCreatedAt()) : "");
-			cell.setCellStyle(dataStyle);
-
+			cell.setCellStyle(currentMessageStyle);
+			
 			// Expéditeur
 			cell = row.createCell(1);
 			if (message.getCreatedBy() != null) {
@@ -1303,13 +1695,13 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 			} else {
 				cell.setCellValue("");
 			}
-			cell.setCellStyle(dataStyle);
-
+			cell.setCellStyle(currentMessageStyle);
+			
 			// Contenu
 			cell = row.createCell(2);
 			cell.setCellValue(message.getContent() != null ? message.getContent() : "");
-			cell.setCellStyle(dataStyle);
-
+			cell.setCellStyle(currentMessageStyle);
+			
 			// Image
 			cell = row.createCell(3);
 			if (Utilities.notBlank(message.getImgUrl())) {
@@ -1317,20 +1709,25 @@ public class ConversationBusiness implements IBasicBusiness<Request<Conversation
 			} else {
 				cell.setCellValue("");
 			}
-			cell.setCellStyle(dataStyle);
+			cell.setCellStyle(currentMessageStyle);
+			
+			messageIndex++;
 		}
 
-		// Ajuster la largeur des colonnes
-		for (int i = 0; i < 5; i++) {
-			sheet.autoSizeColumn(i);
-			sheet.setColumnWidth(i, sheet.getColumnWidth(i) + 1000);
+		// Ajuster la largeur des colonnes avec des largeurs optimales
+		sheet.setColumnWidth(0, 25 * 256); // Date/Heure : 25 caractères
+		sheet.setColumnWidth(1, 20 * 256); // Expéditeur : 20 caractères
+		sheet.setColumnWidth(2, 50 * 256); // Contenu : 50 caractères
+		sheet.setColumnWidth(3, 15 * 256); // Image : 15 caractères
+		if (sheet.getColumnWidth(4) > 0) {
+			sheet.setColumnWidth(4, 20 * 256); // Statut : 20 caractères
 		}
 
 		// Écrire le workbook dans un ByteArrayOutputStream
 		java.io.ByteArrayOutputStream outputStream = new java.io.ByteArrayOutputStream();
 		workbook.write(outputStream);
 		workbook.close();
-
+		
 		log.info("----end exportConversation - " + messages.size() + " messages exportés pour la conversation " + conversationId + "-----");
 		return outputStream;
 	}
